@@ -2,24 +2,19 @@ import os
 import sqlite3
 import asyncio
 import logging
-from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from aiogram.enums import ParseMode
-from dotenv import load_dotenv
 import aiohttp
-
-# Загрузка переменных окружения
-load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Инициализация бота
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+# Токены
+TELEGRAM_TOKEN = "8511592619:AAHPFOr6MBXq8PNFCdEfNe37J9YDIX8kQes"
+GROQ_API_KEY = "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"
 
 bot = Bot(token=TELEGRAM_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
@@ -31,11 +26,8 @@ MODEL_NAME = "llama-3.3-70b-versatile"
 
 # Инициализация БД
 def init_db():
-    """Создание базы данных и таблиц"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = sqlite3.connect('bot.db')
     cursor = conn.cursor()
-    
-    # Таблица для истории сообщений
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,26 +39,11 @@ def init_db():
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    
-    # Таблица для контекста разговоров
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS conversations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            context TEXT,
-            last_interaction DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(chat_id, user_id)
-        )
-    ''')
-    
     conn.commit()
     conn.close()
 
-# Функции работы с БД
 def save_message(user_id: int, chat_id: int, username: str, message_text: str, is_bot: bool):
-    """Сохранение сообщения в БД"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = sqlite3.connect('bot.db')
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO messages (user_id, chat_id, username, message_text, is_bot)
@@ -76,8 +53,7 @@ def save_message(user_id: int, chat_id: int, username: str, message_text: str, i
     conn.close()
 
 def get_chat_history(chat_id: int, user_id: int, limit: int = 10):
-    """Получение истории чата"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = sqlite3.connect('bot.db')
     cursor = conn.cursor()
     cursor.execute('''
         SELECT message_text, is_bot FROM messages
@@ -85,26 +61,19 @@ def get_chat_history(chat_id: int, user_id: int, limit: int = 10):
         ORDER BY timestamp DESC
         LIMIT ?
     ''', (chat_id, user_id, limit))
-    
     rows = cursor.fetchall()
     conn.close()
-    
-    # Формирование контекста для AI
     history = []
     for text, is_bot in reversed(rows):
         role = "assistant" if is_bot else "user"
         history.append({"role": role, "content": text})
-    
     return history
 
-# Функция для запроса к Groq API
 async def get_ai_response(messages: list) -> str:
-    """Получение ответа от Groq AI"""
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-    
     payload = {
         "model": MODEL_NAME,
         "messages": [
@@ -116,7 +85,6 @@ async def get_ai_response(messages: list) -> str:
         "temperature": 0.7,
         "max_tokens": 1024
     }
-    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(GROQ_API_URL, json=payload, headers=headers) as response:
@@ -132,23 +100,13 @@ async def get_ai_response(messages: list) -> str:
         return "Произошла ошибка при подключении к AI 😔"
 
 async def should_respond(message: Message) -> bool:
-    """Проверка, должен ли бот отвечать на сообщение"""
-    # В личных чатах отвечаем всегда
     if message.chat.type == 'private':
         return True
-    
-    # В группах проверяем условия
     text_lower = message.text.lower() if message.text else ""
-    
-    # Если это ответ на сообщение бота
     if message.reply_to_message and message.reply_to_message.from_user.id == bot.id:
         return True
-    
-    # Если упомянуто имя бота
     if BOT_NAME in text_lower:
         return True
-    
-    # Если бот упомянут через @
     if message.entities:
         for entity in message.entities:
             if entity.type == "mention":
@@ -156,15 +114,11 @@ async def should_respond(message: Message) -> bool:
                 mention = message.text[entity.offset:entity.offset + entity.length]
                 if mention.lower().replace('@', '') == bot_info.username.lower():
                     return True
-    
     return False
 
-# Обработчик команды /start
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    """Обработка команды /start"""
     user_name = message.from_user.first_name
-    
     welcome_text = f"""
 <b>👋 Привет, {user_name}!</b>
 
@@ -184,35 +138,20 @@ async def cmd_start(message: Message):
 
 Готов пообщаться! 💬
 """
-    
     await message.answer(welcome_text)
-    save_message(
-        message.from_user.id,
-        message.chat.id,
-        message.from_user.username or message.from_user.first_name,
-        "/start",
-        False
-    )
+    save_message(message.from_user.id, message.chat.id, message.from_user.username or message.from_user.first_name, "/start", False)
 
-# Обработчик команды /clear
 @dp.message(Command("clear"))
 async def cmd_clear(message: Message):
-    """Очистка истории разговора"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = sqlite3.connect('bot.db')
     cursor = conn.cursor()
-    cursor.execute('''
-        DELETE FROM messages
-        WHERE chat_id = ? AND user_id = ?
-    ''', (message.chat.id, message.from_user.id))
+    cursor.execute('DELETE FROM messages WHERE chat_id = ? AND user_id = ?', (message.chat.id, message.from_user.id))
     conn.commit()
     conn.close()
-    
     await message.answer("<b>✅ История разговора очищена!</b>")
 
-# Обработчик команды /help
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
-    """Помощь по использованию бота"""
     help_text = """
 <b>📖 Помощь по боту Сирис</b>
 
@@ -235,53 +174,30 @@ async def cmd_help(message: Message):
 
 <i>Powered by Groq AI 🚀</i>
 """
-    
     await message.answer(help_text)
 
-# Основной обработчик сообщений
 @dp.message(F.text)
 async def handle_message(message: Message):
-    """Обработка текстовых сообщений"""
-    
-    # Проверяем, нужно ли отвечать
     if not await should_respond(message):
         return
-    
-    # Показываем индикатор печати
     await bot.send_chat_action(message.chat.id, "typing")
-    
     user_text = message.text
     user_id = message.from_user.id
     chat_id = message.chat.id
     username = message.from_user.username or message.from_user.first_name
-    
-    # Сохраняем сообщение пользователя
     save_message(user_id, chat_id, username, user_text, False)
-    
-    # Получаем историю разговора
     history = get_chat_history(chat_id, user_id, limit=10)
-    
-    # Добавляем текущее сообщение
     history.append({"role": "user", "content": user_text})
-    
-    # Получаем ответ от AI
     ai_response = await get_ai_response(history)
-    
-    # Сохраняем ответ бота
     save_message(user_id, chat_id, "bot", ai_response, True)
-    
-    # Отправляем ответ с форматированием
     try:
         await message.answer(f"<b>🤖 Сирис:</b>\n\n{ai_response}")
     except Exception as e:
         logger.error(f"Error sending message: {e}")
-        # Если HTML форматирование не работает, отправляем без него
         await message.answer(ai_response)
 
-# Обработчик для новых участников группы
 @dp.message(F.new_chat_members)
 async def new_member(message: Message):
-    """Приветствие новых участников группы"""
     for member in message.new_chat_members:
         if member.id == bot.id:
             greeting = """
@@ -298,27 +214,17 @@ async def new_member(message: Message):
 """
             await message.answer(greeting)
 
-# Главная функция запуска
 async def main():
-    """Запуск бота"""
-    # Инициализация БД
     init_db()
-    
-    # Получаем информацию о боте
     bot_info = await bot.get_me()
     logger.info(f"Bot started: @{bot_info.username}")
-    logger.info(f"Bot name: {bot_info.first_name}")
-    
-    # Удаляем вебхуки если есть
     await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Запускаем polling
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        logger.info("Bot stopped")
     except Exception as e:
         logger.error(f"Bot crashed: {e}")
