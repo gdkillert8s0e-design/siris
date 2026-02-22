@@ -24,7 +24,7 @@ BOT_TOKEN = '8120789440:AAG6OC71xLVURNAxjYXdgZrfNeTtUuc9IHU' # Токен бот
 OWNER_ID = 5883796026        # Ваш Telegram ID (узнайте у @userinfobot)
 
 # Session string – оставьте пустой при первом запуске, потом вставьте полученную строку
-SESSION_STRING = ''
+SESSION_STRING = '1AZWarzsBu2qtIsUTbiCCx0NhCbf9_AB2RRRKOWMYs3SLswNIW0CDJ0Xw7VWhfMHjRA92hwHhGD-Xw29jD-1GhIaYhwKFQQrZqED2012ZYZU31wuPZo3T1HFsOL9YyVQ61Ye3yUoVwrXtX1UJBji9PwsTO5alRKBMajRnwW4I-l1q8iywUww2D4MMJbRzqLU8SZq4gk8g7qmPEGt-D-EI4oN0FmGc3h2fOhA4w8TEV8CV8t6_ieaG08qhyiHDopvV3kCNq4YTNQ6vYy5iz0rJGzH9Y3fIOg7klR0sdrS_G9dqpELsoADmRaIV9dT4VAFWZXWbGzgwcP4NkZtRfvw6NsGJVTf4ecY='
 
 # Настройки мониторинга
 REACT_ONLY_TO_FORWARDS = True  # True = только пересланные из каналов
