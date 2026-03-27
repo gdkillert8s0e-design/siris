@@ -1,4 +1,4 @@
-# ── SSL-патч для Windows (первая строка файла, до всех импортов) ─────────
+# ── SSL-патч для Windows (первая строка, до всех импортов) ───────────────
 import ssl as _ssl
 _ssl._create_default_https_context = _ssl._create_unverified_context
 # ─────────────────────────────────────────────────────────────────────────
@@ -7,29 +7,24 @@ import os
 import json
 import asyncio
 import sqlite3
-from datetime import datetime
+import re
+import random
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import (
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardRemove,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton,
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from dotenv import load_dotenv
+from aiogram.enums import ParseMode
 import aiohttp
-import random
-import re
 
-# Установка зависимостей для голоса
 try:
     import speech_recognition as sr
 except ImportError:
-    print("📦 Устанавливаю SpeechRecognition...")
     import subprocess
     subprocess.run(["pip", "install", "SpeechRecognition"], check=False)
     import speech_recognition as sr
@@ -39,1016 +34,1000 @@ BOT_TOKEN    = "8738745683:AAGZF174_5exSVt55Ou4pVS54W8J1NpCL04"
 GROQ_API_KEY = "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"
 ADMIN_ID     = 5883796026
 ADMIN_ID_2   = 1989613788
-
-def is_admin(user_id: int) -> bool:
-    return user_id in (ADMIN_ID, ADMIN_ID_2)
+DB_PATH      = "business_bot.db"
+CONN_FILE    = "biz_connections.json"
 # ====================================================
 
-# Инициализация бота БЕЗ DefaultBotProperties (это важно для business!)
+def is_admin(uid: int) -> bool:
+    return uid in (ADMIN_ID, ADMIN_ID_2)
+
 bot     = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp      = Dispatcher(storage=storage)
 
-# Хранилище бизнес-подключений
-business_connections      = {}
-BUSINESS_CONNECTIONS_FILE = 'business_connections.json'
+business_connections: dict = {}
+
+# ==================== ПРЕМИУМ ЭМОДЗИ ====================
+def tge(eid, fb=''):
+    return f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>'
+
+EM_GEAR   = tge('5870982283724328568', '⚙️')
+EM_OK     = tge('5870633910337015697', '✅')
+EM_ERR    = tge('5870657884844462243', '❌')
+EM_EYE    = tge('6037397706505195857', '👁')
+EM_BOT    = tge('6030400221232501136', '🤖')
+EM_PERSON = tge('5870994129244131212', '👤')
+EM_MSG    = tge('5778208881301787450', '💬')
+EM_DEL    = tge('5870875489362513438', '🗑')
+EM_STATS  = tge('5870921681735781843', '📊')
+EM_KEY    = tge('5870676941614354370', '🔑')
+EM_BELL   = tge('6039486778597970865', '🔔')
+EM_LOCK   = tge('6037249452824072506', '🔒')
+EM_SHIELD = tge('6030537007350944596', '🛡')
+EM_CLOCK  = tge('5983150113483134607', '⏰')
+EM_MONEY  = tge('5904462880941545555', '🪙')
+EM_FIRE   = tge('5199457120428249992', '🔥')
+EM_INFO   = tge('6028435952299413210', 'ℹ️')
+EM_BACK   = tge('5893057118545646106', '◁')
+EM_LIST   = tge('5870528606328852614', '📁')
+EM_PENCIL = tge('5870676941614354370', '✏️')
 
 
-# Состояния FSM
-class ConfigStates(StatesGroup):
-    waiting_for_config = State()
+# ==================== FSM ====================
+class AIConfig(StatesGroup):
+    waiting_prompt = State()
+
+class BlacklistState(StatesGroup):
+    waiting_id = State()
+
+class AutoReplyState(StatesGroup):
+    waiting_text = State()
 
 
-# ==================== РАБОТА С БИЗНЕС-ПОДКЛЮЧЕНИЯМИ ====================
-def load_business_connections():
-    if os.path.exists(BUSINESS_CONNECTIONS_FILE):
+# ==================== БАЗА ДАННЫХ ====================
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+
+    # Настройки бота
+    c.execute('''CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )''')
+
+    # Сохранённые (удалённые) сообщения
+    c.execute('''CREATE TABLE IF NOT EXISTS message_cache (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id     INTEGER,
+        msg_id      INTEGER,
+        user_id     INTEGER,
+        username    TEXT,
+        first_name  TEXT,
+        text        TEXT,
+        file_id     TEXT,
+        file_type   TEXT,
+        caption     TEXT,
+        timestamp   TEXT,
+        UNIQUE(chat_id, msg_id)
+    )''')
+
+    # Статистика по пользователям
+    c.execute('''CREATE TABLE IF NOT EXISTS user_stats (
+        user_id    INTEGER PRIMARY KEY,
+        username   TEXT,
+        first_name TEXT,
+        msg_count  INTEGER DEFAULT 0,
+        last_seen  TEXT
+    )''')
+
+    # Чёрный список (не отвечаем ИИ)
+    c.execute('''CREATE TABLE IF NOT EXISTS blacklist (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        added_at TEXT
+    )''')
+
+    # История диалогов ИИ
+    c.execute('''CREATE TABLE IF NOT EXISTS ai_memory (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER,
+        role       TEXT,
+        content    TEXT,
+        timestamp  TEXT
+    )''')
+
+    # Дефолтные настройки
+    defaults = {
+        'ai_enabled':      '0',
+        'spy_enabled':     '1',   # слежка за удалёнными
+        'ai_prompt':       'Ты - профессиональный помощник бизнес-аккаунта. Отвечай вежливо, по делу.',
+        'ai_model':        'llama-3.3-70b-versatile',
+        'auto_reply':      '',    # авто-ответ на первое сообщение
+        'reply_chance':    '30',  # % шанс reply
+        'typing_speed':    '1',   # множитель скорости печати
+        'notify_deleted':  '1',   # уведомлять об удалённых
+        'log_all_msgs':    '1',   # логировать все сообщения
+    }
+    for k, v in defaults.items():
+        c.execute('INSERT OR IGNORE INTO settings VALUES (?, ?)', (k, v))
+
+    conn.commit()
+    conn.close()
+
+
+def get_setting(key: str) -> str:
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('SELECT value FROM settings WHERE key=?', (key,))
+    row  = c.fetchone()
+    conn.close()
+    return row[0] if row else ''
+
+def set_setting(key: str, value: str):
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, value))
+    conn.commit()
+    conn.close()
+
+def toggle_setting(key: str) -> str:
+    cur = get_setting(key)
+    new = '0' if cur == '1' else '1'
+    set_setting(key, new)
+    return new
+
+def cache_message(msg: types.Message):
+    if get_setting('log_all_msgs') != '1':
+        return
+    try:
+        u        = msg.from_user
+        file_id  = None
+        file_type= None
+        if msg.photo:
+            file_id   = msg.photo[-1].file_id
+            file_type = 'photo'
+        elif msg.video:
+            file_id   = msg.video.file_id
+            file_type = 'video'
+        elif msg.document:
+            file_id   = msg.document.file_id
+            file_type = 'document'
+        elif msg.voice:
+            file_id   = msg.voice.file_id
+            file_type = 'voice'
+        elif msg.sticker:
+            file_id   = msg.sticker.file_id
+            file_type = 'sticker'
+        elif msg.video_note:
+            file_id   = msg.video_note.file_id
+            file_type = 'video_note'
+
+        conn = sqlite3.connect(DB_PATH)
+        c    = conn.cursor()
+        c.execute('''INSERT OR IGNORE INTO message_cache
+            (chat_id, msg_id, user_id, username, first_name, text, file_id, file_type, caption, timestamp)
+            VALUES (?,?,?,?,?,?,?,?,?,?)''',
+            (msg.chat.id, msg.message_id,
+             u.id if u else 0,
+             u.username if u else '',
+             u.first_name if u else '',
+             msg.text or '',
+             file_id, file_type,
+             msg.caption or '',
+             datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+
+        # Обновляем статистику
+        if u:
+            conn = sqlite3.connect(DB_PATH)
+            c    = conn.cursor()
+            c.execute('''INSERT INTO user_stats (user_id, username, first_name, msg_count, last_seen)
+                VALUES (?,?,?,1,?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    msg_count = msg_count+1,
+                    last_seen = excluded.last_seen,
+                    username  = excluded.username,
+                    first_name= excluded.first_name''',
+                (u.id, u.username or '', u.first_name or '', datetime.now().isoformat()))
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"cache_message error: {e}")
+
+def get_cached_message(chat_id: int, msg_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c    = conn.cursor()
+    c.execute('SELECT * FROM message_cache WHERE chat_id=? AND msg_id=?', (chat_id, msg_id))
+    row  = c.fetchone()
+    conn.close()
+    return row
+
+def is_blacklisted(user_id: int) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('SELECT 1 FROM blacklist WHERE user_id=?', (user_id,))
+    r    = c.fetchone()
+    conn.close()
+    return r is not None
+
+def add_blacklist(user_id: int, username: str = ''):
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('INSERT OR IGNORE INTO blacklist VALUES (?,?,?)',
+              (user_id, username, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+def remove_blacklist(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('DELETE FROM blacklist WHERE user_id=?', (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_blacklist():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c    = conn.cursor()
+    c.execute('SELECT * FROM blacklist')
+    r    = c.fetchall()
+    conn.close()
+    return r
+
+def get_ai_history(user_id: int, limit=10):
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('''SELECT role, content FROM ai_memory
+        WHERE user_id=? ORDER BY timestamp DESC LIMIT ?''', (user_id, limit))
+    msgs = c.fetchall()
+    conn.close()
+    return [{"role": r, "content": cont} for r, cont in reversed(msgs)]
+
+def save_ai_memory(user_id: int, role: str, content: str):
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('INSERT INTO ai_memory (user_id,role,content,timestamp) VALUES (?,?,?,?)',
+              (user_id, role, content, datetime.now().isoformat()))
+    # Чистим старые — оставляем 30
+    c.execute('''DELETE FROM ai_memory WHERE id NOT IN (
+        SELECT id FROM ai_memory WHERE user_id=? ORDER BY timestamp DESC LIMIT 30
+    ) AND user_id=?''', (user_id, user_id))
+    conn.commit()
+    conn.close()
+
+def clear_ai_memory(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('DELETE FROM ai_memory WHERE user_id=?', (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_stats():
+    conn = sqlite3.connect(DB_PATH)
+    c    = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM user_stats')
+    users = c.fetchone()[0]
+    c.execute('SELECT COUNT(*) FROM message_cache')
+    msgs  = c.fetchone()[0]
+    c.execute('SELECT COUNT(*) FROM blacklist')
+    bl    = c.fetchone()[0]
+    c.execute('SELECT SUM(msg_count) FROM user_stats')
+    total = c.fetchone()[0] or 0
+    conn.close()
+    return users, msgs, bl, total
+
+def get_top_users(limit=5):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c    = conn.cursor()
+    c.execute('SELECT * FROM user_stats ORDER BY msg_count DESC LIMIT ?', (limit,))
+    r    = c.fetchall()
+    conn.close()
+    return r
+
+
+# ==================== БИЗ-ПОДКЛЮЧЕНИЯ ====================
+def load_connections():
+    if os.path.exists(CONN_FILE):
         try:
-            with open(BUSINESS_CONNECTIONS_FILE, 'r', encoding='utf-8') as f:
-                connections = json.load(f)
-                print(f"✔️ Загружено {len(connections)} бизнес-подключений")
-                return connections
-        except Exception as e:
-            print(f"✖️ Ошибка загрузки подключений: {e}")
+            with open(CONN_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
             return {}
     return {}
 
-
-def save_business_connections(connections):
-    try:
-        with open(BUSINESS_CONNECTIONS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(connections, f, ensure_ascii=False, indent=2)
-        print(f"💾 Сохранено {len(connections)} бизнес-подключений")
-    except Exception as e:
-        print(f"✖️ Ошибка сохранения подключений: {e}")
+def save_connections(d):
+    with open(CONN_FILE, 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
 
 
-# ==================== ИНИЦИАЛИЗАЦИЯ БД ====================
-def init_db():
-    conn   = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ai_config (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            system_prompt TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_active INTEGER DEFAULT 1
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS conversation_memory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    cursor.execute('SELECT COUNT(*) FROM ai_config WHERE is_active = 1')
-    if cursor.fetchone()[0] == 0:
-        default_prompt = "Ты - профессиональный помощник бизнес-аккаунта. Отвечай вежливо, по делу и профессионально."
-        cursor.execute('INSERT INTO ai_config (system_prompt, is_active) VALUES (?, 1)', (default_prompt,))
-
-    conn.commit()
-    conn.close()
-
-
-def get_active_config():
-    conn   = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT system_prompt FROM ai_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1')
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else "Ты - помощник."
-
-
-def save_config(system_prompt):
-    conn   = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('UPDATE ai_config SET is_active = 0')
-    cursor.execute('INSERT INTO ai_config (system_prompt, is_active) VALUES (?, 1)', (system_prompt,))
-    conn.commit()
-    conn.close()
-
-
-def delete_config():
-    default_prompt = "Ты - профессиональный помощник бизнес-аккаунта. Отвечай вежливо, по делу и профессионально."
-    save_config(default_prompt)
-
-
-def get_conversation_history(user_id, limit=10):
-    conn   = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT role, content FROM conversation_memory 
-        WHERE user_id = ? 
-        ORDER BY timestamp DESC 
-        LIMIT ?
-    ''', (user_id, limit))
-    messages = cursor.fetchall()
-    conn.close()
-    return [{"role": role, "content": content} for role, content in reversed(messages)]
-
-
-def save_to_memory(user_id, role, content):
-    conn   = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO conversation_memory (user_id, role, content) 
-        VALUES (?, ?, ?)
-    ''', (user_id, role, content))
-    conn.commit()
-    conn.close()
-
-
-def clear_memory(user_id):
-    conn   = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM conversation_memory WHERE user_id = ?', (user_id,))
-    conn.commit()
-    conn.close()
-
-
-# ==================== КЛАВИАТУРЫ ====================
-def get_thinking_inline_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Текущий конфиг",  callback_data="show_config")],
-        [InlineKeyboardButton(text="⚙️ Изменить конфиг", callback_data="change_config")],
-        [InlineKeyboardButton(text="🗑 Удалить конфиг",  callback_data="delete_config")],
-    ])
-
-
-def get_config_view_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_thinking")]
-    ])
-
-
-def get_change_config_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_thinking")]
-    ])
-
-
-def get_delete_confirm_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✔️ Да",  callback_data="confirm_delete")],
-        [InlineKeyboardButton(text="✖️ Нет", callback_data="back_to_thinking")],
-    ])
-
-
-async def set_bot_commands():
-    commands = [
-        types.BotCommand(command="start", description="Запустить бота"),
-        types.BotCommand(command="clear", description="Очистить память диалога"),
-    ]
-    await bot.set_my_commands(commands)
-
-
-# ==================== КОНФИГ → ПРОМПТ ====================
-def json_config_to_prompt(config_data):
-    try:
-        if isinstance(config_data, str):
-            config_data = json.loads(config_data)
-
-        if 'system_prompt' in config_data and isinstance(config_data['system_prompt'], str):
-            return config_data['system_prompt']
-
-        if 'personality' in config_data:
-            name        = config_data.get('name', 'Ассистент')
-            personality = config_data['personality']
-            prompt_parts = [f"=== ЛИЧНОСТЬ: {name} ===\n"]
-
-            if 'base_info' in personality:
-                prompt_parts.append("ОСНОВНАЯ ИНФОРМАЦИЯ:")
-                for key, value in personality['base_info'].items():
-                    prompt_parts.append(f"  {key}: {value}")
-                prompt_parts.append("")
-
-            if 'communication_style' in personality:
-                comm = personality['communication_style']
-                prompt_parts.append("СТИЛЬ ОБЩЕНИЯ:")
-                if 'writing_style' in comm:
-                    ws = comm['writing_style']
-                    prompt_parts.append("  Написание:")
-                    prompt_parts.append(f"    - Регистр: {ws.get('case', 'lowercase_only')}")
-                    prompt_parts.append(f"    - Макс слов: {ws.get('max_words_per_message', 15)}")
-                    if 'punctuation' in ws:
-                        p = ws['punctuation']
-                        prompt_parts.append("    - Пунктуация:")
-                        if not p.get('exclamation_marks', False):
-                            prompt_parts.append("      × НЕТ восклицательных знаков")
-                        if not p.get('dashes', False):
-                            prompt_parts.append("      × НЕТ длинных тире")
-                        if p.get('closing_parenthesis_as_smile', False):
-                            prompt_parts.append("      ✓ Используй ) как смайлик")
-                if 'vocabulary' in comm and 'common_words' in comm['vocabulary']:
-                    prompt_parts.append(f"  Частые слова: {', '.join(comm['vocabulary']['common_words'][:10])}")
-                prompt_parts.append("")
-
-            if 'message_patterns' in personality:
-                prompt_parts.append("ПРИМЕРЫ ФРАЗ:")
-                for pattern in personality['message_patterns'][:8]:
-                    prompt_parts.append(f"  - {pattern}")
-                prompt_parts.append("")
-
-            if 'response_behavior' in personality:
-                rb = personality['response_behavior']
-                prompt_parts.append("ПРАВИЛА ОТВЕТОВ:")
-                prompt_parts.append(f"  - Длина: {rb.get('response_length', 'very_short')}")
-                prompt_parts.append(f"  - Избегай заглавных: {rb.get('avoid_capitals', True)}")
-                if 'emoji_usage' in rb:
-                    eu = rb['emoji_usage']
-                    prompt_parts.append(f"  - Эмодзи: {eu.get('frequency', 'rare')}")
-                    if 'preferred_emoji' in eu:
-                        prompt_parts.append(f"    Используй: {', '.join(eu['preferred_emoji'])}")
-                prompt_parts.append("")
-
-            if 'response_templates' in personality:
-                prompt_parts.append("ШАБЛОНЫ ОТВЕТОВ:")
-                for key, value in list(personality['response_templates'].items())[:6]:
-                    prompt_parts.append(f"  {key}: {value}")
-                prompt_parts.append("")
-
-            if 'constraints' in personality:
-                const = personality['constraints']
-                if 'never_use' in const:
-                    prompt_parts.append("СТРОГО ЗАПРЕЩЕНО:")
-                    for item in const['never_use']:
-                        prompt_parts.append(f"  × {item}")
-                if 'always_use' in const:
-                    prompt_parts.append("\nВСЕГДА ИСПОЛЬЗУЙ:")
-                    for item in const['always_use']:
-                        prompt_parts.append(f"  ✓ {item}")
-                prompt_parts.append("")
-
-            if 'example_messages' in personality:
-                prompt_parts.append("ПРИМЕРЫ ТВОИХ СООБЩЕНИЙ:")
-                for ex in personality['example_messages'][:10]:
-                    prompt_parts.append(f"  → {ex}")
-
-            return '\n'.join(prompt_parts)
-
-        prompt_parts = []
-
-        def parse_dict(data, indent=0):
-            for key, value in data.items():
-                prefix = "  " * indent
-                if isinstance(value, dict):
-                    prompt_parts.append(f"{prefix}## {key.upper().replace('_', ' ')}:")
-                    parse_dict(value, indent + 1)
-                elif isinstance(value, list):
-                    prompt_parts.append(f"{prefix}## {key.upper().replace('_', ' ')}:")
-                    for item in value:
-                        if isinstance(item, dict):
-                            parse_dict(item, indent + 1)
-                        else:
-                            prompt_parts.append(f"{prefix}  - {item}")
-                elif isinstance(value, (str, int, float, bool)):
-                    prompt_parts.append(f"{prefix}{key.replace('_', ' ')}: {value}")
-
-        if 'name' in config_data:
-            prompt_parts.append(f"=== ПЕРСОНАЖ: {config_data['name']} ===\n")
-
-        parse_dict(config_data)
-        return '\n'.join(prompt_parts)
-
-    except Exception as e:
-        print(f"Ошибка парсинга конфига: {e}")
-        return str(config_data)
-
-
-def clean_ai_formatting(text):
+# ==================== GROQ AI ====================
+def clean_formatting(text: str) -> str:
     text = re.sub(r'```[\s\S]*?```', '', text)
     text = re.sub(r'`[^`]+`', '', text)
     text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
     text = re.sub(r'__([^_]+)__', r'\1', text)
     text = re.sub(r'\*([^\*]+)\*', r'\1', text)
     text = re.sub(r'_([^_]+)_', r'\1', text)
-    text = text.replace('*', '').replace('_', '')
-    text = re.sub(r'~~([^~]+)~~', r'\1', text)
-    return text.strip()
+    return re.sub(r'~~([^~]+)~~', r'\1', text).replace('*','').replace('_','').strip()
 
+async def ask_groq(user_id: int, text: str) -> str | None:
+    prompt = get_setting('ai_prompt')
+    model  = get_setting('ai_model') or 'llama-3.3-70b-versatile'
+    history = get_ai_history(user_id)
 
-def calculate_typing_time(text):
-    char_count = len(text)
-    if char_count <= 20:
-        base_time = char_count * random.uniform(0.15, 0.25)
-    else:
-        base_time = char_count * random.uniform(0.25, 0.4)
-    return max(min(base_time, 12), 1.5)
+    messages = [{"role": "system", "content": prompt}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": text})
 
-
-async def handle_rate_limit_error(chat_id, business_connection_id=None):
-    print("⚠️ Rate limit достигнут, ждем 5 секунд...")
-    await asyncio.sleep(5)
-    fallback_message = "ща"
     try:
-        if business_connection_id:
-            await bot.send_message(chat_id=chat_id, text=fallback_message,
-                                   business_connection_id=business_connection_id)
-        else:
-            await bot.send_message(chat_id=chat_id, text=fallback_message)
-        print("✔️ Отправлено fallback сообщение")
+        conn = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=conn) as s:
+            async with s.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={"model": model, "messages": messages, "temperature": 0.7, "max_tokens": 1024},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as r:
+                if r.status == 200:
+                    data    = await r.json()
+                    reply   = clean_formatting(data['choices'][0]['message']['content'])
+                    save_ai_memory(user_id, "user",      text)
+                    save_ai_memory(user_id, "assistant", reply)
+                    return reply
+                elif r.status == 429:
+                    print("Groq rate limit")
+                    return None
+                else:
+                    err = await r.text()
+                    print(f"Groq error {r.status}: {err[:200]}")
+                    return None
     except Exception as e:
-        print(f"✖️ Ошибка fallback: {e}")
-
-
-async def transcribe_voice(voice_file_path):
-    try:
-        import speech_recognition as sr
-        wav_path = voice_file_path.replace('.ogg', '.wav')
-        process  = await asyncio.create_subprocess_exec(
-            'ffmpeg', '-i', voice_file_path, '-acodec', 'pcm_s16le',
-            '-ar', '16000', '-ac', '1', wav_path, '-y',
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        await process.communicate()
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data, language='ru-RU')
-        try:
-            os.remove(wav_path)
-            os.remove(voice_file_path)
-        except:
-            pass
-        return text
-    except Exception as e:
-        print(f"✖️ Ошибка распознавания: {e}")
+        print(f"Groq exception: {e}")
         return None
 
+def typing_time(text: str) -> float:
+    n = len(text)
+    t = n * random.uniform(0.15, 0.25) if n <= 20 else n * random.uniform(0.25, 0.4)
+    spd = float(get_setting('typing_speed') or '1')
+    return max(min(t / max(spd, 0.1), 12), 1.0)
 
-def split_message_naturally(text):
+def split_naturally(text: str) -> list[str]:
     if '\n' in text:
         parts = [p.strip() for p in text.split('\n') if p.strip()]
         if len(parts) <= 2:
-            if random.random() < 0.7 and len(parts) > 1:
-                return [p for p in parts if p.strip()]
-            else:
-                return [text.strip()] if text.strip() else ["ок"]
-        messages = []
-        i = 0
+            return parts if random.random() < 0.7 else [text.strip()]
+        msgs, i = [], 0
         while i < len(parts):
-            if random.random() < 0.4 and i < len(parts) - 1:
-                combined = (parts[i] + '\n' + parts[i + 1]).strip()
-                if combined:
-                    messages.append(combined)
-                i += 2
+            if random.random() < 0.4 and i < len(parts)-1:
+                msgs.append((parts[i]+'\n'+parts[i+1]).strip()); i += 2
             else:
-                if parts[i].strip():
-                    messages.append(parts[i].strip())
-                i += 1
-        return messages if messages else ["ок"]
+                msgs.append(parts[i]); i += 1
+        return msgs or [text]
+    words = text.split()
+    wc    = len(words)
+    if wc < 8:
+        if random.random() < 0.5 and wc >= 4:
+            m = wc // 2
+            return [' '.join(words[:m]), ' '.join(words[m:])]
+        return [text]
+    sents = re.split(r'(?<=[.!?])\s+', text)
+    n     = random.randint(2, min(4, max(2, len(sents))))
+    cs    = max(1, len(sents) // n)
+    return [' '.join(sents[i*cs:(i+1)*cs if i<n-1 else None]).strip() for i in range(n) if ' '.join(sents[i*cs:(i+1)*cs if i<n-1 else None]).strip()]
 
-    words      = text.split()
-    word_count = len(words)
+async def send_ai_reply(chat_id, user_id, text, bc_id, reply_to=None):
+    response = await ask_groq(user_id, text)
+    if not response:
+        return
 
-    if word_count < 8:
-        if random.random() < 0.6 and word_count >= 4:
-            mid   = word_count // 2
-            part1 = ' '.join(words[:mid]).strip()
-            part2 = ' '.join(words[mid:]).strip()
-            if part1 and part2:
-                return [part1, part2]
-        return [text.strip()] if text.strip() else ["ок"]
+    parts        = split_naturally(response)
+    use_reply    = reply_to and random.randint(1, 100) <= int(get_setting('reply_chance') or '30')
+    first_reply  = reply_to if use_reply else None
 
-    if word_count < 15:
-        sentences = re.split(r'(?<=[.!?,])\s+', text)
-        if len(sentences) <= 1:
-            parts = [p.strip() for p in text.split(',') if p.strip()]
-            if len(parts) >= 2:
-                mid   = len(parts) // 2
-                part1 = ', '.join(parts[:mid]).strip()
-                part2 = ', '.join(parts[mid:]).strip()
-                result = [x for x in [part1, part2] if x]
-                return result if result else [text.strip()]
-            if word_count >= 6:
-                t      = word_count // 3
-                result = [x for x in [
-                    ' '.join(words[:t]).strip(),
-                    ' '.join(words[t:t*2]).strip(),
-                    ' '.join(words[t*2:]).strip()
-                ] if x]
-                return result if result else [text.strip()]
-        if len(sentences) == 2:
-            return [s.strip() for s in sentences if s.strip()]
-        mid   = len(sentences) // 2
-        part1 = ' '.join(sentences[:mid]).strip()
-        part2 = ' '.join(sentences[mid:]).strip()
-        return [x for x in [part1, part2] if x] or [text.strip()]
+    for idx, part in enumerate(parts):
+        tt       = typing_time(part)
+        intervals = max(int(tt / 4), 1)
+        for _ in range(intervals):
+            await asyncio.sleep(tt / intervals)
+            try:
+                await bot.send_chat_action(chat_id=chat_id, action="typing", business_connection_id=bc_id)
+            except:
+                pass
+        try:
+            kwargs = {"chat_id": chat_id, "text": part, "business_connection_id": bc_id}
+            if idx == 0 and first_reply:
+                kwargs["reply_to_message_id"] = first_reply
+            await bot.send_message(**kwargs)
+        except Exception as e:
+            print(f"send_ai_reply error: {e}")
 
-    sentences    = re.split(r'(?<=[.!?,])\s+', text)
-    if len(sentences) <= 1:
-        parts = [p.strip() for p in text.split(',') if p.strip()]
-        if len(parts) > 2:
-            num_messages = random.randint(2, min(4, len(parts)))
-            chunk_size   = max(1, len(parts) // num_messages)
-            messages     = []
-            for i in range(num_messages):
-                start = i * chunk_size
-                end   = len(parts) if i == num_messages - 1 else start + chunk_size
-                msg   = ', '.join(parts[start:end]).strip()
-                if msg:
-                    messages.append(msg)
-            return messages if messages else [text.strip()]
-        num_messages = random.randint(2, min(4, word_count // 3))
-        chunk_size   = max(1, word_count // num_messages)
-        messages     = []
-        for i in range(num_messages):
-            start = i * chunk_size
-            end   = word_count if i == num_messages - 1 else start + chunk_size
-            msg   = ' '.join(words[start:end]).strip()
-            if msg:
-                messages.append(msg)
-        return messages if messages else [text.strip()]
-
-    num_messages = random.randint(2, min(4, len(sentences)))
-    chunk_size   = max(1, len(sentences) // num_messages)
-    messages     = []
-    for i in range(num_messages):
-        start = i * chunk_size
-        end   = len(sentences) if i == num_messages - 1 else start + chunk_size
-        chunk = ' '.join(sentences[start:end]).strip()
-        if chunk:
-            messages.append(chunk)
-    return messages if messages else [text.strip() if text.strip() else ["ок"]]
+        if idx < len(parts)-1:
+            await asyncio.sleep(random.uniform(0.5, 2.0))
 
 
-async def get_ai_response(user_id, message_text, system_prompt):
-    url     = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type":  "application/json"
-    }
+# ==================== КЛАВИАТУРЫ ====================
+def main_kb():
+    ai  = '🟢' if get_setting('ai_enabled') == '1' else '🔴'
+    spy = '🟢' if get_setting('spy_enabled') == '1' else '🔴'
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{ai} ИИ-ответы",        callback_data="menu_ai"),
+         InlineKeyboardButton(text=f"{spy} Слежка за удал.", callback_data="menu_spy")],
+        [InlineKeyboardButton(text="📊 Статистика",           callback_data="menu_stats"),
+         InlineKeyboardButton(text="👥 Пользователи",         callback_data="menu_users")],
+        [InlineKeyboardButton(text="⛔ Чёрный список",        callback_data="menu_blacklist"),
+         InlineKeyboardButton(text="🔔 Уведомления",         callback_data="menu_notify")],
+        [InlineKeyboardButton(text="⚙️ Прочие настройки",    callback_data="menu_misc")],
+    ])
 
-    history = get_conversation_history(user_id, limit=10)
+def ai_kb():
+    enabled = get_setting('ai_enabled') == '1'
+    btn_lbl = f"{'🟢 Включено' if enabled else '🔴 Выключено'}"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=btn_lbl,               callback_data="ai_toggle")],
+        [InlineKeyboardButton(text="✏️ Изменить промпт",  callback_data="ai_prompt")],
+        [InlineKeyboardButton(text="🧠 Модель: " + get_setting('ai_model').split('-')[0], callback_data="ai_model")],
+        [InlineKeyboardButton(text="💬 Шанс reply: " + get_setting('reply_chance') + "%", callback_data="ai_reply_chance")],
+        [InlineKeyboardButton(text="⚡ Скорость печати x" + get_setting('typing_speed'), callback_data="ai_speed")],
+        [InlineKeyboardButton(text="🗑 Очистить всю AI-память", callback_data="ai_clear_all")],
+        [InlineKeyboardButton(text="◁ Назад",             callback_data="back_main")],
+    ])
 
-    try:
-        json.loads(system_prompt)
-        system_prompt = json_config_to_prompt(system_prompt)
-    except:
-        pass
+def spy_kb():
+    enabled = get_setting('spy_enabled') == '1'
+    notif   = get_setting('notify_deleted') == '1'
+    log     = get_setting('log_all_msgs') == '1'
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{'🟢' if enabled else '🔴'} Слежка за удалёнными", callback_data="spy_toggle")],
+        [InlineKeyboardButton(text=f"{'🟢' if notif else '🔴'} Уведомлять меня",       callback_data="spy_notify_toggle")],
+        [InlineKeyboardButton(text=f"{'🟢' if log else '🔴'} Логировать все сообщ.",   callback_data="spy_log_toggle")],
+        [InlineKeyboardButton(text="◁ Назад", callback_data="back_main")],
+    ])
 
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": message_text})
+def back_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◁ Назад", callback_data="back_main")]
+    ])
 
-    data = {
-        "model":       "llama-3.3-70b-versatile",
-        "messages":    messages,
-        "temperature": 0.7,
-        "max_tokens":  1024,
-    }
+def blacklist_kb():
+    bl = get_blacklist()
+    rows = []
+    for row in bl:
+        name = f"@{row['username']}" if row['username'] else str(row['user_id'])
+        rows.append([InlineKeyboardButton(text=f"❌ {name}", callback_data=f"bl_remove_{row['user_id']}")])
+    rows.append([InlineKeyboardButton(text="➕ Добавить по ID", callback_data="bl_add")])
+    rows.append([InlineKeyboardButton(text="◁ Назад",           callback_data="back_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
-    try:
-        connector = aiohttp.TCPConnector(ssl=False)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.post(url, headers=headers, json=data,
-                                    timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
-                    result      = await response.json()
-                    ai_response = result['choices'][0]['message']['content']
-                    ai_response = clean_ai_formatting(ai_response)
-                    save_to_memory(user_id, "user", message_text)
-                    save_to_memory(user_id, "assistant", ai_response)
-                    return ai_response
-                elif response.status == 429:
-                    print("⚠️ Rate limit 429 получен")
-                    return None
-                else:
-                    error_text = await response.text()
-                    print(f"✖️ API ошибка {response.status}: {error_text}")
-                    return None
-    except Exception as e:
-        print(f"✖️ Исключение Groq: {e}")
-        return None
+def model_kb():
+    models = [
+        ("llama-3.3-70b-versatile", "Llama 3.3 70B"),
+        ("llama-3.1-8b-instant",    "Llama 3.1 8B"),
+        ("mixtral-8x7b-32768",      "Mixtral 8x7B"),
+        ("gemma2-9b-it",            "Gemma2 9B"),
+    ]
+    cur = get_setting('ai_model')
+    rows = []
+    for val, label in models:
+        tick = "✅ " if val == cur else ""
+        rows.append([InlineKeyboardButton(text=tick+label, callback_data=f"set_model_{val}")])
+    rows.append([InlineKeyboardButton(text="◁ Назад", callback_data="menu_ai")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def misc_kb():
+    auto = get_setting('auto_reply')
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"{'🟢' if auto else '🔴'} Авто-ответ на первое сообщение",
+            callback_data="misc_autoreply")],
+        [InlineKeyboardButton(text="◁ Назад", callback_data="back_main")],
+    ])
 
 
-# ==================== КОМАНДЫ ====================
+# ==================== HANDLERS ====================
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     if not is_admin(message.from_user.id):
         return
-
-    config = get_active_config()
-    try:
-        config_json    = json.loads(config)
-        config_preview = json.dumps(config_json, ensure_ascii=False, indent=2)
-        if len(config_preview) > 200:
-            config_preview = config_preview[:200] + "..."
-    except:
-        config_preview = config[:200] + "..." if len(config) > 200 else config
-
+    ai  = '🟢 Вкл' if get_setting('ai_enabled') == '1' else '🔴 Выкл'
+    spy = '🟢 Вкл' if get_setting('spy_enabled') == '1' else '🔴 Выкл'
     await message.answer(
-        f"🧠 <b>Настройка мышления ИИ</b>\n\n"
-        f"📄 <b>Текущий конфиг:</b>\n"
-        f"<blockquote>{config_preview}</blockquote>",
-        reply_markup=get_thinking_inline_keyboard(),
-        parse_mode="HTML"
+        f'{EM_SHIELD} <b>Business Monitor Bot</b>\n\n'
+        f'{EM_BOT} ИИ-ответы: <b>{ai}</b>\n'
+        f'{EM_EYE} Слежка за удалёнными: <b>{spy}</b>\n\n'
+        f'{EM_INFO} Выберите раздел настроек:',
+        reply_markup=main_kb(), parse_mode=ParseMode.HTML
     )
-
 
 @dp.message(Command("clear"))
 async def cmd_clear(message: types.Message):
-    clear_memory(message.from_user.id)
-    await message.answer(
-        "✔️ <b>Память диалога очищена!</b>\n\n"
-        "История переписки удалена, начинаем с чистого листа.",
-        parse_mode="HTML"
-    )
+    if not is_admin(message.from_user.id): return
+    clear_ai_memory(message.from_user.id)
+    await message.answer(f'{EM_OK} Память ИИ очищена.', parse_mode=ParseMode.HTML)
 
-
-# ==================== CALLBACK HANDLERS ====================
-@dp.callback_query(F.data == "back_to_thinking")
-async def callback_back_to_thinking(callback: types.CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("✖️ Доступ запрещён", show_alert=True)
-        return
-
+# ── Главное меню ──────────────────────────────────
+@dp.callback_query(F.data == "back_main")
+async def cb_back(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return await callback.answer()
     await state.clear()
-    config = get_active_config()
-    try:
-        config_json    = json.loads(config)
-        config_preview = json.dumps(config_json, ensure_ascii=False, indent=2)
-        if len(config_preview) > 200:
-            config_preview = config_preview[:200] + "..."
-    except:
-        config_preview = config[:200] + "..." if len(config) > 200 else config
-
+    ai  = '🟢 Вкл' if get_setting('ai_enabled') == '1' else '🔴 Выкл'
+    spy = '🟢 Вкл' if get_setting('spy_enabled') == '1' else '🔴 Выкл'
     try:
         await callback.message.edit_text(
-            f"🧠 <b>Настройка мышления ИИ</b>\n\n"
-            f"📄 <b>Текущий конфиг:</b>\n"
-            f"<blockquote>{config_preview}</blockquote>",
-            reply_markup=get_thinking_inline_keyboard(),
-            parse_mode="HTML"
+            f'{EM_SHIELD} <b>Business Monitor Bot</b>\n\n'
+            f'{EM_BOT} ИИ-ответы: <b>{ai}</b>\n'
+            f'{EM_EYE} Слежка за удалёнными: <b>{spy}</b>\n\n'
+            f'{EM_INFO} Выберите раздел настроек:',
+            reply_markup=main_kb(), parse_mode=ParseMode.HTML
         )
-    except:
-        pass
+    except: pass
     await callback.answer()
 
-
-@dp.callback_query(F.data == "show_config")
-async def callback_show_config(callback: types.CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("✖️ Доступ запрещён", show_alert=True)
-        return
-
-    config = get_active_config()
-    try:
-        config_text = json.dumps(json.loads(config), ensure_ascii=False, indent=2)
-    except:
-        config_text = config
-
-    if len(config_text) > 3000:
-        await callback.message.answer_document(
-            types.BufferedInputFile(config_text.encode('utf-8'), filename="config.json"),
-            caption="<b>📝 Текущая конфигурация ИИ</b>",
-            parse_mode="HTML"
-        )
-        await callback.answer("Конфиг отправлен файлом")
-    else:
-        try:
-            await callback.message.edit_text(
-                f"📝 <b>Текущая конфигурация ИИ:</b>\n\n"
-                f"<blockquote>{config_text}</blockquote>",
-                reply_markup=get_config_view_keyboard(),
-                parse_mode="HTML"
-            )
-            await callback.answer()
-        except Exception as e:
-            await callback.answer(f"Ошибка: {str(e)}", show_alert=True)
-
-
-@dp.callback_query(F.data == "change_config")
-async def callback_change_config(callback: types.CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("✖️ Доступ запрещён", show_alert=True)
-        return
-
-    await state.set_state(ConfigStates.waiting_for_config)
-
-    example_config = '''{
-  "name": "никита",
-  "personality": {
-    "base_info": {
-      "age": 22,
-      "occupation": ["кодер", "ютубер"]
-    },
-    "communication_style": {
-      "writing_style": {
-        "case": "lowercase_only",
-        "max_words_per_message": 15,
-        "punctuation": {
-          "exclamation_marks": false,
-          "dashes": false,
-          "closing_parenthesis_as_smile": true
-        }
-      },
-      "vocabulary": {
-        "common_words": ["норм", "окей", "го", "агась", "че"]
-      }
-    },
-    "message_patterns": [
-      "как дела?)",
-      "норм)",
-      "понял)"
-    ],
-    "response_behavior": {
-      "response_length": "very_short",
-      "avoid_capitals": true,
-      "emoji_usage": {
-        "frequency": "rare",
-        "preferred_emoji": [")", "?)"]
-      }
-    },
-    "response_templates": {
-      "help": "че нужно?)",
-      "success": "готово)",
-      "error": "баг)"
-    },
-    "constraints": {
-      "never_use": [
-        "восклицательные знаки",
-        "заглавные буквы",
-        "длинные тире"
-      ],
-      "always_use": [
-        "строчные буквы",
-        "короткие фразы",
-        "смайлик )"
-      ]
-    },
-    "example_messages": [
-      "привет) че как?)",
-      "норм) кодю)",
-      "го сделаем?)",
-      "окей) щас"
-    ]
-  }
-}'''
-
+# ── ИИ меню ───────────────────────────────────────
+@dp.callback_query(F.data == "menu_ai")
+async def cb_ai_menu(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    enabled = get_setting('ai_enabled') == '1'
     try:
         await callback.message.edit_text(
-            "⚙️ <b>изменение конфига</b>\n\n"
-            "<b>📄 отправь новый конфиг:</b>\n"
-            "• простой текст для system prompt\n"
-            "• json файл с детальной конфигурацией\n\n"
-            "<b>📋 структура json пример:</b>\n\n"
-            "<blockquote expandable>"
-            f"<pre>{example_config}</pre>"
-            "</blockquote>\n\n"
-            "<b>основные поля:</b>\n"
-            "• <code>name</code> - имя персонажа\n"
-            "• <code>personality.communication_style</code> - стиль общения\n"
-            "• <code>personality.message_patterns</code> - примеры фраз\n"
-            "• <code>personality.constraints</code> - ограничения\n"
-            "• <code>personality.example_messages</code> - примеры сообщений",
-            reply_markup=get_change_config_keyboard(),
-            parse_mode="HTML"
+            f'{EM_BOT} <b>Настройки ИИ-ответов</b>\n\n'
+            f'Статус: <b>{"🟢 Включено" if enabled else "🔴 Выключено"}</b>\n'
+            f'Модель: <code>{get_setting("ai_model")}</code>\n'
+            f'Шанс reply: <b>{get_setting("reply_chance")}%</b>\n'
+            f'Скорость печати: <b>x{get_setting("typing_speed")}</b>',
+            reply_markup=ai_kb(), parse_mode=ParseMode.HTML
         )
-    except:
-        pass
-    await callback.answer("отправь новый конфиг")
-
-
-@dp.callback_query(F.data == "delete_config")
-async def callback_delete_config(callback: types.CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("✖️ Доступ запрещён", show_alert=True)
-        return
-
-    try:
-        await callback.message.edit_text(
-            "🗑 <b>Удаление конфигурации</b>\n\n"
-            "Вы уверены, что хотите сбросить конфигурацию?\n"
-            "Будет установлен стандартный system prompt.",
-            reply_markup=get_delete_confirm_keyboard(),
-            parse_mode="HTML"
-        )
-    except:
-        pass
+    except: pass
     await callback.answer()
 
+@dp.callback_query(F.data == "ai_toggle")
+async def cb_ai_toggle(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    new = toggle_setting('ai_enabled')
+    await callback.answer(f"ИИ-ответы {'включены' if new=='1' else 'выключены'}")
+    await cb_ai_menu(callback)
 
-@dp.callback_query(F.data == "confirm_delete")
-async def callback_confirm_delete(callback: types.CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("✖️ Доступ запрещён", show_alert=True)
-        return
-
-    delete_config()
-    config         = get_active_config()
-    config_preview = config[:200] + "..." if len(config) > 200 else config
-
+@dp.callback_query(F.data == "ai_prompt")
+async def cb_ai_prompt(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    cur = get_setting('ai_prompt')
     try:
         await callback.message.edit_text(
-            f"✔️ <b>Конфигурация сброшена!</b>\n\n"
-            f"📄 <b>Текущий конфиг:</b>\n"
-            f"<blockquote>{config_preview}</blockquote>",
-            reply_markup=get_thinking_inline_keyboard(),
-            parse_mode="HTML"
+            f'{EM_PENCIL} <b>Изменение промпта</b>\n\n'
+            f'<b>Текущий:</b>\n<blockquote>{cur[:300]}</blockquote>\n\n'
+            f'Отправьте новый промпт:',
+            reply_markup=back_kb(), parse_mode=ParseMode.HTML
         )
-    except:
-        pass
-    await callback.answer("Конфиг удалён")
+    except: pass
+    await state.set_state(AIConfig.waiting_prompt)
+    await callback.answer()
 
-
-@dp.message(ConfigStates.waiting_for_config)
-async def process_new_config(message: types.Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-
-    new_config = None
-
-    if message.document:
-        if message.document.mime_type == 'application/json':
-            file         = await bot.get_file(message.document.file_id)
-            file_content = await bot.download_file(file.file_path)
-            try:
-                json_data  = json.loads(file_content.read().decode('utf-8'))
-                new_config = json.dumps(json_data, ensure_ascii=False, indent=2)
-                print(f"✔️ JSON конфиг загружен из файла")
-            except Exception as e:
-                await message.answer(f"✖️ ошибка чтения json: {e}", parse_mode="HTML")
-                return
-        else:
-            await message.answer("✖️ поддерживаются только json файлы", parse_mode="HTML")
-            return
-    elif message.text:
-        try:
-            json_data  = json.loads(message.text)
-            new_config = json.dumps(json_data, ensure_ascii=False, indent=2)
-            print(f"✔️ JSON конфиг загружен из текста")
-        except:
-            new_config = message.text
-            print(f"✔️ Текстовый конфиг загружен")
-
-    if new_config:
-        save_config(new_config)
+@dp.message(AIConfig.waiting_prompt)
+async def process_ai_prompt(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    if message.text:
+        set_setting('ai_prompt', message.text.strip())
         await state.clear()
+        await message.answer(f'{EM_OK} Промпт обновлён!', reply_markup=back_kb(), parse_mode=ParseMode.HTML)
 
-        test_prompt = json_config_to_prompt(new_config)
-        print(f"📝 Сгенерированный промпт ({len(test_prompt)} символов):")
-        print(f"{test_prompt[:500]}..." if len(test_prompt) > 500 else test_prompt)
-
-        try:
-            config_json = json.loads(new_config)
-            if 'system_prompt' in config_json:
-                config_type = "system_prompt (готовый промпт)"
-                name = config_json.get('name', 'не указано')
-            elif 'personality' in config_json:
-                config_type = "personality structure"
-                name = config_json.get('name', 'ассистент')
-            else:
-                config_type = "универсальная структура"
-                name = config_json.get('name', config_json.get('basic_info', {}).get('name', 'не указано'))
-            config_preview = f"имя: {name}\nтип: {config_type}\nполей: {len(config_json)}"
-        except:
-            config_preview = new_config[:200] + "..." if len(new_config) > 200 else new_config
-
-        await message.answer(
-            f"✔️ <b>конфиг обновлен)</b>\n\n"
-            f"📄 <b>новый конфиг:</b>\n<blockquote>{config_preview}</blockquote>",
-            reply_markup=get_thinking_inline_keyboard(),
-            parse_mode="HTML"
+@dp.callback_query(F.data == "ai_model")
+async def cb_ai_model(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    try:
+        await callback.message.edit_text(
+            f'{EM_GEAR} <b>Выберите модель ИИ:</b>',
+            reply_markup=model_kb(), parse_mode=ParseMode.HTML
         )
+    except: pass
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("set_model_"))
+async def cb_set_model(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    model = callback.data.replace("set_model_", "")
+    set_setting('ai_model', model)
+    await callback.answer(f"Модель: {model}")
+    await cb_ai_model(callback)
+
+@dp.callback_query(F.data == "ai_reply_chance")
+async def cb_reply_chance(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    cur    = int(get_setting('reply_chance') or '30')
+    # Циклично переключаем: 0 → 10 → 20 → 30 → 50 → 70 → 100 → 0
+    steps  = [0, 10, 20, 30, 50, 70, 100]
+    idx    = steps.index(cur) if cur in steps else 2
+    new    = steps[(idx + 1) % len(steps)]
+    set_setting('reply_chance', str(new))
+    await callback.answer(f"Шанс reply: {new}%")
+    await cb_ai_menu(callback)
+
+@dp.callback_query(F.data == "ai_speed")
+async def cb_ai_speed(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    cur   = float(get_setting('typing_speed') or '1')
+    steps = [0.5, 1.0, 1.5, 2.0, 3.0]
+    try:
+        idx = steps.index(cur)
+    except:
+        idx = 1
+    new = steps[(idx + 1) % len(steps)]
+    set_setting('typing_speed', str(new))
+    await callback.answer(f"Скорость x{new}")
+    await cb_ai_menu(callback)
+
+@dp.callback_query(F.data == "ai_clear_all")
+async def cb_clear_all_memory(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('DELETE FROM ai_memory')
+    conn.commit()
+    conn.close()
+    await callback.answer("Вся AI-память очищена!")
+    await cb_ai_menu(callback)
+
+# ── Слежка ────────────────────────────────────────
+@dp.callback_query(F.data == "menu_spy")
+async def cb_spy_menu(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    enabled = get_setting('spy_enabled') == '1'
+    notif   = get_setting('notify_deleted') == '1'
+    log     = get_setting('log_all_msgs') == '1'
+    try:
+        await callback.message.edit_text(
+            f'{EM_EYE} <b>Слежка за удалёнными сообщениями</b>\n\n'
+            f'Статус: <b>{"🟢 Включено" if enabled else "🔴 Выключено"}</b>\n'
+            f'Уведомления: <b>{"🟢 Да" if notif else "🔴 Нет"}</b>\n'
+            f'Логировать все: <b>{"🟢 Да" if log else "🔴 Нет"}</b>\n\n'
+            f'{EM_INFO} Когда кто-то удаляет сообщение — бот пришлёт '
+            f'содержимое + ID + юзернейм удалившего.',
+            reply_markup=spy_kb(), parse_mode=ParseMode.HTML
+        )
+    except: pass
+    await callback.answer()
+
+@dp.callback_query(F.data == "spy_toggle")
+async def cb_spy_toggle(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    new = toggle_setting('spy_enabled')
+    await callback.answer(f"Слежка {'включена' if new=='1' else 'выключена'}")
+    await cb_spy_menu(callback)
+
+@dp.callback_query(F.data == "spy_notify_toggle")
+async def cb_spy_notify(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    new = toggle_setting('notify_deleted')
+    await callback.answer(f"Уведомления {'вкл' if new=='1' else 'выкл'}")
+    await cb_spy_menu(callback)
+
+@dp.callback_query(F.data == "spy_log_toggle")
+async def cb_spy_log(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    new = toggle_setting('log_all_msgs')
+    await callback.answer(f"Логирование {'вкл' if new=='1' else 'выкл'}")
+    await cb_spy_menu(callback)
+
+# ── Статистика ────────────────────────────────────
+@dp.callback_query(F.data == "menu_stats")
+async def cb_stats(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    users, msgs, bl, total = get_stats()
+    top = get_top_users(5)
+    top_text = ''
+    for i, row in enumerate(top, 1):
+        name = f"@{row['username']}" if row['username'] else row['first_name'] or str(row['user_id'])
+        top_text += f"  {i}. {name} — {row['msg_count']} сообщ.\n"
+
+    try:
+        await callback.message.edit_text(
+            f'{EM_STATS} <b>Статистика</b>\n\n'
+            f'👥 Уникальных пользователей: <b>{users}</b>\n'
+            f'💬 Сообщений в кеше: <b>{msgs}</b>\n'
+            f'⛔ В чёрном списке: <b>{bl}</b>\n'
+            f'📨 Всего сообщений: <b>{total}</b>\n\n'
+            f'<b>🏆 Топ-5 активных:</b>\n{top_text or "  Нет данных"}',
+            reply_markup=back_kb(), parse_mode=ParseMode.HTML
+        )
+    except: pass
+    await callback.answer()
+
+# ── Пользователи ──────────────────────────────────
+@dp.callback_query(F.data == "menu_users")
+async def cb_users(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    top = get_top_users(10)
+    if not top:
+        text = f'{EM_PERSON} <b>Пользователи</b>\n\nПока нет данных.'
     else:
-        await message.answer("✖️ не удалось получить конфиг", parse_mode="HTML")
+        lines = []
+        for row in top:
+            name = f"@{row['username']}" if row['username'] else (row['first_name'] or '?')
+            lines.append(f"• <code>{row['user_id']}</code> {name} — {row['msg_count']} сообщ. | {str(row['last_seen'])[:10]}")
+        text = f'{EM_PERSON} <b>Пользователи (топ 10)</b>\n\n' + '\n'.join(lines)
+    try:
+        await callback.message.edit_text(text, reply_markup=back_kb(), parse_mode=ParseMode.HTML)
+    except: pass
+    await callback.answer()
+
+# ── Чёрный список ─────────────────────────────────
+@dp.callback_query(F.data == "menu_blacklist")
+async def cb_blacklist(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    bl = get_blacklist()
+    try:
+        await callback.message.edit_text(
+            f'⛔ <b>Чёрный список</b>\n\n'
+            f'{EM_INFO} Пользователям в чёрном списке ИИ не отвечает.\n'
+            f'Всего: <b>{len(bl)}</b>',
+            reply_markup=blacklist_kb(), parse_mode=ParseMode.HTML
+        )
+    except: pass
+    await callback.answer()
+
+@dp.callback_query(F.data == "bl_add")
+async def cb_bl_add(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    try:
+        await callback.message.edit_text(
+            f'⛔ <b>Добавить в чёрный список</b>\n\nОтправьте Telegram ID пользователя:',
+            reply_markup=back_kb(), parse_mode=ParseMode.HTML
+        )
+    except: pass
+    await state.set_state(BlacklistState.waiting_id)
+    await callback.answer()
+
+@dp.message(BlacklistState.waiting_id)
+async def process_bl_add(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    try:
+        uid = int(message.text.strip())
+        add_blacklist(uid)
+        await state.clear()
+        await message.answer(f'{EM_OK} ID <code>{uid}</code> добавлен в чёрный список.',
+                             reply_markup=back_kb(), parse_mode=ParseMode.HTML)
+    except:
+        await message.answer(f'{EM_ERR} Введите числовой ID.')
+
+@dp.callback_query(F.data.startswith("bl_remove_"))
+async def cb_bl_remove(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    uid = int(callback.data.replace("bl_remove_", ""))
+    remove_blacklist(uid)
+    await callback.answer(f"Удалён из ЧС: {uid}")
+    await cb_blacklist(callback)
+
+# ── Уведомления ───────────────────────────────────
+@dp.callback_query(F.data == "menu_notify")
+async def cb_notify(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    notif = get_setting('notify_deleted') == '1'
+    try:
+        await callback.message.edit_text(
+            f'{EM_BELL} <b>Уведомления</b>\n\n'
+            f'Уведомления об удалённых: <b>{"🟢 Вкл" if notif else "🔴 Выкл"}</b>',
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"{'🟢 Включено' if notif else '🔴 Выключено'}",
+                    callback_data="spy_notify_toggle2")],
+                [InlineKeyboardButton(text="◁ Назад", callback_data="back_main")],
+            ]), parse_mode=ParseMode.HTML
+        )
+    except: pass
+    await callback.answer()
+
+@dp.callback_query(F.data == "spy_notify_toggle2")
+async def cb_notify_toggle2(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    new = toggle_setting('notify_deleted')
+    await callback.answer(f"Уведомления {'вкл' if new=='1' else 'выкл'}")
+    await cb_notify(callback)
+
+# ── Прочие настройки ──────────────────────────────
+@dp.callback_query(F.data == "menu_misc")
+async def cb_misc(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    auto = get_setting('auto_reply')
+    try:
+        await callback.message.edit_text(
+            f'{EM_GEAR} <b>Прочие настройки</b>\n\n'
+            f'Авто-ответ на первое сообщение:\n'
+            f'<blockquote>{"Не задан" if not auto else auto[:200]}</blockquote>',
+            reply_markup=misc_kb(), parse_mode=ParseMode.HTML
+        )
+    except: pass
+    await callback.answer()
+
+@dp.callback_query(F.data == "misc_autoreply")
+async def cb_misc_autoreply(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return await callback.answer()
+    auto = get_setting('auto_reply')
+    try:
+        await callback.message.edit_text(
+            f'💬 <b>Авто-ответ на первое сообщение</b>\n\n'
+            f'{"Текущий: <blockquote>" + auto + "</blockquote>" if auto else "Не задан"}\n\n'
+            f'Отправьте текст авто-ответа (или <code>-</code> чтобы отключить):',
+            reply_markup=back_kb(), parse_mode=ParseMode.HTML
+        )
+    except: pass
+    await state.set_state(AutoReplyState.waiting_text)
+    await callback.answer()
+
+@dp.message(AutoReplyState.waiting_text)
+async def process_autoreply(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    text = message.text.strip() if message.text else ''
+    if text == '-':
+        set_setting('auto_reply', '')
+        await message.answer(f'{EM_OK} Авто-ответ отключён.', reply_markup=back_kb(), parse_mode=ParseMode.HTML)
+    else:
+        set_setting('auto_reply', text)
+        await message.answer(f'{EM_OK} Авто-ответ установлен.', reply_markup=back_kb(), parse_mode=ParseMode.HTML)
+    await state.clear()
 
 
 # ==================== BUSINESS HANDLERS ====================
+
 @dp.business_connection()
-async def handle_business_connection(business_connection: types.BusinessConnection):
+async def on_biz_connection(bc: types.BusinessConnection):
     try:
-        user_id       = business_connection.user.id
-        connection_id = business_connection.id
-        is_enabled    = business_connection.is_enabled
-
-        if is_enabled:
-            business_connections[connection_id] = user_id
-            save_business_connections(business_connections)
-            print(f"✔️ Бизнес-подключение установлено: {connection_id} -> User {user_id}")
+        if bc.is_enabled:
+            business_connections[bc.id] = bc.user.id
+            save_connections(business_connections)
+            print(f"Бизнес-подключение: {bc.id} -> {bc.user.id}")
+            # Уведомляем всех админов
+            for aid in (ADMIN_ID, ADMIN_ID_2):
+                try:
+                    await bot.send_message(aid,
+                        f'{EM_OK} <b>Бизнес-аккаунт подключён!</b>\n'
+                        f'ID подключения: <code>{bc.id}</code>\n'
+                        f'Пользователь: <code>{bc.user.id}</code>',
+                        parse_mode=ParseMode.HTML)
+                except: pass
         else:
-            if connection_id in business_connections:
-                del business_connections[connection_id]
-                save_business_connections(business_connections)
-            print(f"✖️ Бизнес-подключение отключено: {connection_id}")
-
-        print(f"📊 Всего подключений: {len(business_connections)}")
-
+            business_connections.pop(bc.id, None)
+            save_connections(business_connections)
+            print(f"Бизнес-подключение отключено: {bc.id}")
     except Exception as e:
-        print(f"✖️ Ошибка сохранения подключения: {e}")
+        print(f"biz_connection error: {e}")
 
 
-@dp.business_message(F.text)
-async def handle_business_text_message(message: types.Message):
+@dp.deleted_business_messages()
+async def on_deleted_biz_msgs(event: types.BusinessMessagesDeleted):
+    """Срабатывает когда сообщения удалены в бизнес-чате."""
+    if get_setting('spy_enabled') != '1':
+        return
+    if get_setting('notify_deleted') != '1':
+        return
+
     try:
-        business_connection_id = message.business_connection_id
-        if not business_connection_id:
-            return
+        chat_id = event.chat.id
+        for msg_id in event.message_ids:
+            cached = get_cached_message(chat_id, msg_id)
 
-        if business_connection_id not in business_connections:
-            business_connections[business_connection_id] = ADMIN_ID
-            save_business_connections(business_connections)
-            print(f"✔️ Автосохранение: {business_connection_id} -> {ADMIN_ID}")
+            # Формируем текст уведомления
+            if cached:
+                u_id   = cached['user_id']
+                u_name = f"@{cached['username']}" if cached['username'] else cached['first_name'] or '?'
+                content= cached['text'] or cached['caption'] or ''
+                ftype  = cached['file_type'] or ''
+                fid    = cached['file_id']
+                ts     = str(cached['timestamp'])[:16]
 
-        bot_owner_id = business_connections[business_connection_id]
-
-        if message.from_user and message.from_user.id == bot_owner_id:
-            print(f"⏭️ Сообщение от владельца - пропускаем")
-            return
-
-        user_message = message.text
-        user_id      = message.from_user.id
-        print(f"📨 Сообщение от клиента {user_id}: {user_message}")
-
-        should_reply = random.random() < 0.3
-        reply_to_id  = message.message_id if should_reply else None
-
-        if should_reply:
-            print(f"💬 Будем отвечать с reply")
-
-        initial_delay = random.uniform(1, 5)
-        print(f"⏳ Ждем {initial_delay:.1f} сек перед началом печатания...")
-        await asyncio.sleep(initial_delay)
-
-        await bot.send_chat_action(
-            chat_id=message.chat.id,
-            action="typing",
-            business_connection_id=business_connection_id
-        )
-
-        system_prompt = get_active_config()
-        ai_response   = await get_ai_response(user_id, user_message, system_prompt)
-
-        if ai_response is None:
-            await handle_rate_limit_error(message.chat.id, business_connection_id)
-            return
-
-        message_parts = split_message_naturally(ai_response)
-        print(f"📝 Ответ разбит на {len(message_parts)} сообщений")
-
-        for idx, part in enumerate(message_parts):
-            typing_time      = calculate_typing_time(part)
-            typing_intervals = max(int(typing_time / 4), 1)
-            interval_time    = typing_time / typing_intervals
-
-            print(f"⌨️ Сообщение {idx + 1}/{len(message_parts)}: {len(part)} символов ({typing_time:.1f} сек)...")
-
-            for i in range(typing_intervals):
-                await asyncio.sleep(interval_time)
-                await bot.send_chat_action(
-                    chat_id=message.chat.id,
-                    action="typing",
-                    business_connection_id=business_connection_id
+                header = (
+                    f'{EM_DEL} <b>Удалено сообщение!</b>\n\n'
+                    f'{EM_PERSON} <b>Кто:</b> {u_name}\n'
+                    f'🆔 <b>ID:</b> <code>{u_id}</code>\n'
+                    f'💬 <b>Чат:</b> <code>{chat_id}</code>\n'
+                    f'🕓 <b>Когда написал:</b> {ts}\n\n'
                 )
 
-            if idx == 0 and reply_to_id:
-                await bot.send_message(
-                    chat_id=message.chat.id, text=part,
-                    reply_to_message_id=reply_to_id,
-                    business_connection_id=business_connection_id
-                )
+                if content:
+                    header += f'<b>Текст:</b>\n<blockquote>{content[:500]}</blockquote>'
+
             else:
-                await bot.send_message(
-                    chat_id=message.chat.id, text=part,
-                    business_connection_id=business_connection_id
+                header = (
+                    f'{EM_DEL} <b>Удалено сообщение!</b>\n\n'
+                    f'💬 <b>Чат:</b> <code>{chat_id}</code>\n'
+                    f'🆔 <b>ID сообщения:</b> <code>{msg_id}</code>\n\n'
+                    f'⚠️ Сообщение не было закешировано (логирование было выкл.)'
                 )
 
-            print(f"✔️ Сообщение {idx + 1}/{len(message_parts)} отправлено")
-
-            if idx < len(message_parts) - 1:
-                between_delay = random.uniform(0.5, 1.5) if len(part) < 20 else random.uniform(1, 2.5)
-                print(f"⏳ Пауза {between_delay:.1f} сек...")
-                await asyncio.sleep(between_delay)
-                await bot.send_chat_action(
-                    chat_id=message.chat.id, action="typing",
-                    business_connection_id=business_connection_id
-                )
-
-        print(f"✅ Все сообщения отправлены!")
+            # Отправляем уведомление всем админам
+            for aid in (ADMIN_ID, ADMIN_ID_2):
+                try:
+                    await bot.send_message(aid, header, parse_mode=ParseMode.HTML)
+                    # Если есть медиа — пересылаем
+                    if cached and fid and ftype:
+                        cap = f'📎 Удалённый файл ({ftype})'
+                        if ftype == 'photo':
+                            await bot.send_photo(aid, fid, caption=cap)
+                        elif ftype == 'video':
+                            await bot.send_video(aid, fid, caption=cap)
+                        elif ftype == 'document':
+                            await bot.send_document(aid, fid, caption=cap)
+                        elif ftype == 'voice':
+                            await bot.send_voice(aid, fid, caption=cap)
+                        elif ftype == 'sticker':
+                            await bot.send_sticker(aid, fid)
+                        elif ftype == 'video_note':
+                            await bot.send_video_note(aid, fid)
+                except Exception as e:
+                    print(f"notify admin error: {e}")
 
     except Exception as e:
-        print(f"✖️ Ошибка бизнес-сообщения: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"on_deleted_biz_msgs error: {e}")
+        import traceback; traceback.print_exc()
 
 
-@dp.business_message(F.voice)
-async def handle_business_voice_message(message: types.Message):
+@dp.business_message()
+async def on_biz_message(message: types.Message):
+    """Все входящие бизнес-сообщения."""
     try:
-        business_connection_id = message.business_connection_id
-        if not business_connection_id:
+        bc_id = message.business_connection_id
+        if not bc_id:
             return
 
-        if business_connection_id not in business_connections:
-            business_connections[business_connection_id] = ADMIN_ID
-            save_business_connections(business_connections)
-            print(f"✔️ Автосохранение: {business_connection_id} -> {ADMIN_ID}")
+        if bc_id not in business_connections:
+            business_connections[bc_id] = ADMIN_ID
+            save_connections(business_connections)
 
-        bot_owner_id = business_connections[business_connection_id]
+        owner_id = business_connections[bc_id]
 
-        if message.from_user and message.from_user.id == bot_owner_id:
-            print(f"⏭️ Голосовое от владельца - пропускаем")
+        # Кешируем сообщение (до проверки владельца)
+        cache_message(message)
+
+        # Если это сообщение от владельца — не отвечаем ИИ
+        if message.from_user and message.from_user.id == owner_id:
             return
 
-        user_id        = message.from_user.id
-        voice_duration = message.voice.duration
-        print(f"🎤 Голосовое от клиента {user_id} ({voice_duration} сек)")
+        user_id = message.from_user.id if message.from_user else 0
 
-        should_reply = random.random() < 0.3
-        reply_to_id  = message.message_id if should_reply else None
+        # Авто-ответ на первое сообщение
+        auto_reply = get_setting('auto_reply')
+        if auto_reply:
+            conn = sqlite3.connect(DB_PATH)
+            c    = conn.cursor()
+            c.execute('SELECT COUNT(*) FROM message_cache WHERE user_id=? AND chat_id=?',
+                      (user_id, message.chat.id))
+            count = c.fetchone()[0]
+            conn.close()
+            if count == 1:  # первое сообщение от этого юзера в этом чате
+                await asyncio.sleep(random.uniform(1, 3))
+                try:
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        text=auto_reply,
+                        business_connection_id=bc_id,
+                        reply_to_message_id=message.message_id
+                    )
+                except Exception as e:
+                    print(f"auto_reply error: {e}")
+                return
 
-        listen_time       = min(voice_duration, 20)
-        intervals         = max(1, int(listen_time / 4))
-        interval_duration = listen_time / intervals
-
-        print(f"👂 Имитируем прослушивание {listen_time:.1f} сек...")
-        for i in range(intervals):
-            await bot.send_chat_action(
-                chat_id=message.chat.id, action="typing",
-                business_connection_id=business_connection_id
-            )
-            await asyncio.sleep(interval_duration)
-
-        file       = await bot.get_file(message.voice.file_id)
-        voice_path = f"/tmp/business_voice_{user_id}_{message.voice.file_id}.ogg"
-        await bot.download_file(file.file_path, voice_path)
-
-        transcribed_text = await transcribe_voice(voice_path)
-
-        if not transcribed_text:
-            await bot.send_message(
-                chat_id=message.chat.id, text="не расслышал, повтори",
-                reply_to_message_id=reply_to_id,
-                business_connection_id=business_connection_id
-            )
+        # ИИ ответы
+        if get_setting('ai_enabled') != '1':
+            return
+        if is_blacklisted(user_id):
+            print(f"User {user_id} in blacklist, skip AI")
             return
 
-        print(f"📝 Распознано: {transcribed_text}")
-
-        system_prompt = get_active_config()
-        ai_response   = await get_ai_response(user_id, transcribed_text, system_prompt)
-
-        if ai_response is None:
-            await handle_rate_limit_error(message.chat.id, business_connection_id)
+        text = message.text or message.caption
+        if not text:
             return
 
-        message_parts = split_message_naturally(ai_response)
-        print(f"📝 Ответ разбит на {len(message_parts)} сообщений")
-
-        for idx, part in enumerate(message_parts):
-            typing_time      = calculate_typing_time(part)
-            typing_intervals = max(int(typing_time / 4), 1)
-            interval_time    = typing_time / typing_intervals
-
-            print(f"⌨️ Сообщение {idx + 1}/{len(message_parts)}: {len(part)} символов ({typing_time:.1f} сек)...")
-
-            for i in range(typing_intervals):
-                await asyncio.sleep(interval_time)
-                await bot.send_chat_action(
-                    chat_id=message.chat.id, action="typing",
-                    business_connection_id=business_connection_id
-                )
-
-            if idx == 0 and reply_to_id:
-                await bot.send_message(
-                    chat_id=message.chat.id, text=part,
-                    reply_to_message_id=reply_to_id,
-                    business_connection_id=business_connection_id
-                )
-            else:
-                await bot.send_message(
-                    chat_id=message.chat.id, text=part,
-                    business_connection_id=business_connection_id
-                )
-
-            print(f"✔️ Сообщение {idx + 1}/{len(message_parts)} отправлено")
-
-            if idx < len(message_parts) - 1:
-                between_delay = random.uniform(1, 3)
-                print(f"⏳ Пауза {between_delay:.1f} сек...")
-                await asyncio.sleep(between_delay)
-                await bot.send_chat_action(
-                    chat_id=message.chat.id, action="typing",
-                    business_connection_id=business_connection_id
-                )
-
-        print(f"✅ Голосовое обработано!")
+        await asyncio.sleep(random.uniform(1, 4))
+        await send_ai_reply(message.chat.id, user_id, text, bc_id, message.message_id)
 
     except Exception as e:
-        print(f"✖️ Ошибка бизнес-голоса: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"on_biz_message error: {e}")
+        import traceback; traceback.print_exc()
 
 
-# ==================== ОБЫЧНЫЕ СООБЩЕНИЯ (только для админов) ====================
+# ── Обычные сообщения от админа ───────────────────
 @dp.message()
-async def handle_message(message: types.Message):
+async def on_admin_message(message: types.Message):
     if hasattr(message, 'business_connection_id') and message.business_connection_id:
         return
     if not is_admin(message.from_user.id):
@@ -1056,60 +1035,28 @@ async def handle_message(message: types.Message):
     if message.text and message.text.startswith('/'):
         return
 
-    user_message = message.text or message.caption or ""
-    if not user_message:
+    text = message.text or ''
+    if not text:
         return
 
-    system_prompt = get_active_config()
-    ai_response   = await get_ai_response(message.from_user.id, user_message, system_prompt)
-
-    if ai_response is None:
-        await handle_rate_limit_error(message.chat.id)
-        return
-
-    await message.answer(ai_response, parse_mode="HTML")
-
-
-@dp.message(F.voice)
-async def handle_admin_voice(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return
-
-    await bot.send_chat_action(message.chat.id, "typing")
-
-    try:
-        file       = await bot.get_file(message.voice.file_id)
-        voice_path = f"/tmp/admin_voice_{message.voice.file_id}.ogg"
-        await bot.download_file(file.file_path, voice_path)
-
-        transcribed_text = await transcribe_voice(voice_path)
-        if not transcribed_text:
-            await message.answer("✖️ Не удалось распознать")
-            return
-
-        system_prompt = get_active_config()
-        ai_response   = await get_ai_response(message.from_user.id, transcribed_text, system_prompt)
-
-        if ai_response is None:
-            await handle_rate_limit_error(message.chat.id)
-            return
-
-        await message.answer(ai_response, parse_mode="HTML")
-
-    except Exception as e:
-        print(f"✖️ Ошибка голоса: {e}")
-        await message.answer("✖️ Ошибка обработки")
+    response = await ask_groq(message.from_user.id, text)
+    if response:
+        await message.answer(response, parse_mode=ParseMode.HTML)
 
 
 # ==================== ЗАПУСК ====================
 async def main():
     global business_connections
-
-    business_connections = load_business_connections()
+    business_connections = load_connections()
     init_db()
-    await set_bot_commands()
 
-    print("🤖 Бот запущен!")
+    await bot.set_my_commands([
+        types.BotCommand(command="start", description="Главное меню"),
+        types.BotCommand(command="clear", description="Очистить AI память"),
+    ])
+
+    print("🤖 Business Monitor Bot запущен!")
+    print(f"   Подключений загружено: {len(business_connections)}")
     await dp.start_polling(bot)
 
 
