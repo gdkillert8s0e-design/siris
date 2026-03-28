@@ -1,4 +1,4 @@
-# ── SSL-патч для Windows (первая строка) ────────────────────────────────
+  # ── SSL-патч для Windows (первая строка) ────────────────────────────────
 import ssl as _ssl
 _ssl._create_default_https_context = _ssl._create_unverified_context
 # ─────────────────────────────────────────────────────────────────────────
@@ -93,44 +93,45 @@ EM_ARROW_LEFT = tge(EMOJI_ID['BACK'], '')
 EM_ARROW_RIGHT = tge(EMOJI_ID['SEND'], '')
 EM_WAVE = tge(EMOJI_ID['WAVE'], '')
 EM_THUMB_UP = tge(EMOJI_ID['THUMB_UP'], '')
+EM_TRASH = tge(EMOJI_ID['TRASH'], '')  # Добавлена недостающая переменная
 
 # ==================== КЛАВИАТУРЫ ====================
 
 def main_kb():
-    """Главная клавиатура с премиум эмодзи"""
+    """Главная клавиатура для всех пользователей"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="Настройки",
+                text="⚙️ Настройки",
                 callback_data='s_settings',
                 icon_custom_emoji_id=EMOJI_ID['SETTINGS']
             ),
             InlineKeyboardButton(
-                text="Слежка",
+                text="👁️ Слежка",
                 callback_data='s_spy',
                 icon_custom_emoji_id=EMOJI_ID['EYE']
             )
         ],
         [
             InlineKeyboardButton(
-                text="Рассылка",
+                text="📢 Рассылка",
                 callback_data='s_broadcast',
                 icon_custom_emoji_id=EMOJI_ID['MEGAPHONE']
             ),
             InlineKeyboardButton(
-                text="Чёрный список",
+                text="⛔ ЧС",
                 callback_data='s_bl',
                 icon_custom_emoji_id=EMOJI_ID['BLOCK']
             )
         ],
         [
             InlineKeyboardButton(
-                text="Авто-ответ",
+                text="💬 Авто-ответ",
                 callback_data='s_auto',
                 icon_custom_emoji_id=EMOJI_ID['SPEECH']
             ),
             InlineKeyboardButton(
-                text="Очистить память",
+                text="🗑️ Очистить память",
                 callback_data='s_clearmem',
                 icon_custom_emoji_id=EMOJI_ID['TRASH']
             )
@@ -138,7 +139,7 @@ def main_kb():
     ])
 
 def admin_kb():
-    """Админская клавиатура с дополнительными функциями"""
+    """Админская клавиатура (скрыта от обычных пользователей)"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
@@ -490,8 +491,8 @@ COMMANDER_PROMPT = """Ты — командный ИИ для управлени
 и вернуть JSON с действием.
 
 Доступные действия:
-- {"action":"stats"} — показать статистику
-- {"action":"users"} — список пользователей
+- {"action":"stats"} — показать статистику (только для админов)
+- {"action":"users"} — список пользователей (только для админов)
 - {"action":"broadcast","text":"..."} — разослать сообщение ВСЕМ пользователям из БД
 - {"action":"ai_on"} — включить ИИ-ответы
 - {"action":"ai_off"} — выключить ИИ-ответы
@@ -508,6 +509,7 @@ COMMANDER_PROMPT = """Ты — командный ИИ для управлени
 Всегда возвращай ТОЛЬКО валидный JSON без пояснений и без markdown."""
 
 async def execute_command(uid: int, text: str, message: types.Message):
+    """Обработка команд через ИИ (только для админов)"""
     if not is_admin(uid):
         await message.answer(f"{EM_ERR} Доступ запрещён. Эта команда только для администраторов.", parse_mode=ParseMode.HTML)
         return
@@ -650,7 +652,7 @@ async def execute_command(uid: int, text: str, message: types.Message):
 
 @dp.message(Command('start'))
 async def cmd_start(msg: types.Message):
-    """Приветственное сообщение с описанием бота (общедоступное)"""
+    """Приветственное сообщение с описанием бота (доступно всем)"""
     welcome_text = (
         f"{EM_BOT} <b>Business Monitor Bot</b>\n\n"
         f"{EM_WAVE} <b>Привет! Я бот для автоматизации бизнес-аккаунта Telegram.</b>\n\n"
@@ -665,15 +667,11 @@ async def cmd_start(msg: types.Message):
         f"1️⃣ Подключите меня к бизнес-аккаунту Telegram\n"
         f"2️⃣ Настройте ИИ-ответы в разделе «Настройки»\n"
         f"3️⃣ Я буду автоматически отвечать на сообщения клиентов\n"
-        f"4️⃣ Удалённые сообщения будут отправляться администраторам\n\n"
+        f"4️⃣ Удалённые сообщения сохраняются в базу данных\n\n"
         f"{EM_THUMB_UP} <i>Используйте кнопки ниже для управления ботом</i>"
     )
     
-    if is_admin(msg.from_user.id):
-        await msg.answer(welcome_text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-    else:
-        # Для обычных пользователей показываем только приветствие без кнопок админа
-        await msg.answer(welcome_text, parse_mode=ParseMode.HTML)
+    await msg.answer(welcome_text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
 @dp.message(Command('clear'))
 async def cmd_clear(msg: types.Message):
@@ -685,24 +683,25 @@ async def cmd_clear(msg: types.Message):
 
 @dp.callback_query(F.data=='back')
 async def cb_back(cb: types.CallbackQuery, state: FSMContext):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     await state.clear()
     try:
-        await cb.message.edit_text(
-            f'⚙️ <b>Business Monitor Bot</b>\n\n'
-            f'🤖 ИИ-ответы: <b>{"🟢 Вкл" if gs("ai_enabled")=="1" else "🔴 Выкл"}</b>\n'
-            f'👁 Слежка: <b>{"🟢 Вкл" if gs("spy_enabled")=="1" else "🔴 Выкл"}</b>',
-            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        if is_admin(cb.from_user.id):
+            await cb.message.edit_text(
+                f'⚙️ <b>Business Monitor Bot</b>\n\n'
+                f'🤖 ИИ-ответы: <b>{"🟢 Вкл" if gs("ai_enabled")=="1" else "🔴 Выкл"}</b>\n'
+                f'👁 Слежка: <b>{"🟢 Вкл" if gs("spy_enabled")=="1" else "🔴 Выкл"}</b>',
+                reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        else:
+            await cb.message.edit_text(
+                f'⚙️ <b>Business Monitor Bot</b>\n\n'
+                f'🤖 ИИ-ответы: <b>{"🟢 Вкл" if gs("ai_enabled")=="1" else "🔴 Выкл"}</b>\n'
+                f'👁 Слежка: <b>{"🟢 Вкл" if gs("spy_enabled")=="1" else "🔴 Выкл"}</b>',
+                reply_markup=main_kb(), parse_mode=ParseMode.HTML)
     except: pass
     await cb.answer()
 
 @dp.callback_query(F.data=='s_settings')
 async def cb_settings(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     try:
         await cb.message.edit_text(
             f'⚙️ <b>Настройки ИИ-ответов</b>\n\n'
@@ -731,7 +730,7 @@ async def cb_stats_cb(cb: types.CallbackQuery):
             f'⛔ В ЧС: <b>{bl}</b>\n'
             f'⭐️ Всего: <b>{tm}</b>\n\n'
             f'<b>Топ-5:</b>\n{top or "нет данных"}',
-            reply_markup=admin_kb(), parse_mode=ParseMode.HTML)
+            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
     except Exception as e:
         print(f"Stats error: {e}")
         await cb.message.answer(f'{EM_STATS} Статистика:\nПользователей: {u}\nСообщений: {m}\nЧС: {bl}\nВсего: {tm}')
@@ -748,15 +747,12 @@ async def cb_users_cb(cb: types.CallbackQuery):
     try:
         await cb.message.edit_text(
             f'👥 <b>Пользователи ({len(rows)})</b>\n\n' + ('\n'.join(lines) if lines else 'Нет данных'),
-            reply_markup=admin_kb(), parse_mode=ParseMode.HTML)
+            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
     except: pass
     await cb.answer()
 
 @dp.callback_query(F.data=='t_ai')
 async def cb_t_ai(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     current = gs('ai_enabled')
     new = '0' if current == '1' else '1'
     ss('ai_enabled', new)
@@ -772,9 +768,6 @@ async def cb_t_ai(cb: types.CallbackQuery):
 
 @dp.callback_query(F.data=='t_prompt')
 async def cb_t_prompt(cb: types.CallbackQuery, state: FSMContext):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     cur = gs('ai_prompt')
     try:
         await cb.message.edit_text(
@@ -786,7 +779,6 @@ async def cb_t_prompt(cb: types.CallbackQuery, state: FSMContext):
 
 @dp.message(SetPrompt.waiting)
 async def proc_prompt(msg: types.Message, state: FSMContext):
-    if not is_admin(msg.from_user.id): return
     if msg.text:
         ss('ai_prompt', msg.text.strip())
         await state.clear()
@@ -794,9 +786,6 @@ async def proc_prompt(msg: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data=='t_model')
 async def cb_t_model(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     try:
         await cb.message.edit_text(
             f'🤖 <b>Выберите модель:</b>',
@@ -807,18 +796,12 @@ async def cb_t_model(cb: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith('m_'))
 async def cb_set_model(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     ss('ai_model', cb.data[2:])
     await cb.answer(f'Модель: {cb.data[2:].split("-")[0]}')
     await cb_settings(cb)
 
 @dp.callback_query(F.data=='t_chance')
 async def cb_chance(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     steps=[0,10,20,30,50,70,100]; cur=int(gs('reply_chance') or 30)
     idx=steps.index(cur) if cur in steps else 3
     new=steps[(idx+1)%len(steps)]; ss('reply_chance',str(new))
@@ -827,9 +810,6 @@ async def cb_chance(cb: types.CallbackQuery):
 
 @dp.callback_query(F.data=='t_speed')
 async def cb_speed(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     steps=[0.5,1.0,1.5,2.0,3.0]
     try: idx=steps.index(float(gs('typing_speed') or 1))
     except: idx=1
@@ -839,13 +819,10 @@ async def cb_speed(cb: types.CallbackQuery):
 
 @dp.callback_query(F.data=='s_spy')
 async def cb_spy(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     try:
         await cb.message.edit_text(
             f'{EM_EYE} <b>Слежка за удалёнными сообщениями</b>\n\n'
-            f'Когда кто-то удаляет сообщение в диалоге — бот пришлёт его содержимое ТОЛЬКО администраторам.\n\n'
+            f'Когда кто-то удаляет сообщение в диалоге — бот сохраняет его в базу данных.\n\n'
             f'Текущий статус: <b>{"🟢 Включена" if gs("spy_enabled")=="1" else "🔴 Выключена"}</b>',
             reply_markup=spy_kb(), parse_mode=ParseMode.HTML)
     except: pass
@@ -853,9 +830,6 @@ async def cb_spy(cb: types.CallbackQuery):
 
 @dp.callback_query(F.data=='t_spy')
 async def cb_t_spy(cb):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     new = toggle('spy_enabled')
     status = "включена" if new == "1" else "выключена"
     await cb.answer(f'Слежка {status}')
@@ -863,9 +837,6 @@ async def cb_t_spy(cb):
 
 @dp.callback_query(F.data=='s_broadcast')
 async def cb_broadcast_start(cb: types.CallbackQuery, state: FSMContext):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     rows=get_all_users()
     try:
         await cb.message.edit_text(
@@ -877,7 +848,6 @@ async def cb_broadcast_start(cb: types.CallbackQuery, state: FSMContext):
 
 @dp.message(BroadcastState.waiting)
 async def proc_broadcast(msg: types.Message, state: FSMContext):
-    if not is_admin(msg.from_user.id): return
     text = msg.text or msg.caption or ''
     if not text: return
     await state.clear()
@@ -911,9 +881,6 @@ async def proc_broadcast(msg: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data=='s_auto')
 async def cb_auto(cb: types.CallbackQuery, state: FSMContext):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     auto=gs('auto_reply')
     text_msg = f'{EM_MSG} <b>Авто-ответ на первое сообщение</b>\n\n'
     if auto:
@@ -931,7 +898,6 @@ async def cb_auto(cb: types.CallbackQuery, state: FSMContext):
 
 @dp.message(SetAutoReply.waiting)
 async def proc_auto(msg: types.Message, state: FSMContext):
-    if not is_admin(msg.from_user.id): return
     t=msg.text.strip() if msg.text else ''
     ss('auto_reply','' if t=='-' else t)
     await state.clear()
@@ -939,9 +905,6 @@ async def proc_auto(msg: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data=='s_bl')
 async def cb_bl(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     with db() as c:
         bl=c.execute('SELECT COUNT(*) FROM blacklist').fetchone()[0]
     try:
@@ -953,9 +916,6 @@ async def cb_bl(cb: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith('bl_rm_'))
 async def cb_bl_rm(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     uid=int(cb.data.replace('bl_rm_',''))
     with db() as c: c.execute('DELETE FROM blacklist WHERE user_id=?',(uid,))
     await cb.answer(f'Удалён: {uid}')
@@ -963,9 +923,6 @@ async def cb_bl_rm(cb: types.CallbackQuery):
 
 @dp.callback_query(F.data=='s_clearmem')
 async def cb_clearmem(cb: types.CallbackQuery):
-    if not is_admin(cb.from_user.id):
-        await cb.answer("⛔ Доступ запрещён", show_alert=True)
-        return
     clear_ai_mem_all()
     await cb.answer('AI-память очищена!')
     try:
@@ -975,27 +932,30 @@ async def cb_clearmem(cb: types.CallbackQuery):
     except: pass
 
 @dp.message()
-async def on_admin_msg(msg: types.Message, state: FSMContext):
+async def on_user_msg(msg: types.Message, state: FSMContext):
     if hasattr(msg,'business_connection_id') and msg.business_connection_id: return
-    if not is_admin(msg.from_user.id): return
     if msg.text and msg.text.startswith('/'): return
     current_state = await state.get_state()
     if current_state: return
     text = msg.text or ''
     if not text: return
-    await execute_command(msg.from_user.id, text, msg)
+    # Обычный пользователь может общаться с ботом через ИИ
+    if not is_admin(msg.from_user.id):
+        reply = await ask(msg.from_user.id, text)
+        if reply:
+            await msg.answer(reply, parse_mode=ParseMode.HTML)
+    else:
+        await execute_command(msg.from_user.id, text, msg)
 
 # ==================== BUSINESS HANDLERS ====================
 
 @dp.business_connection()
 async def on_biz_conn(bc: types.BusinessConnection):
-    """Обработка подключения бизнес-аккаунта"""
     try:
         if bc.is_enabled:
             biz_con[bc.id] = bc.user.id
             save_connections(biz_con)
             print(f"Бизнес-подключение: {bc.id} -> {bc.user.id}")
-            # Уведомляем только администраторов
             for aid in (ADMIN_ID, ADMIN_ID_2):
                 try:
                     await bot.send_message(aid,
@@ -1010,57 +970,20 @@ async def on_biz_conn(bc: types.BusinessConnection):
 
 @dp.deleted_business_messages()
 async def on_deleted(event: types.BusinessMessagesDeleted):
-    """Уведомление только администраторов о удалённых сообщениях"""
+    """Сохранение удалённых сообщений в БД (без отправки админам)"""
     if gs('spy_enabled') != '1': return
     try:
         for msg_id in event.message_ids:
             cached = get_cached(event.chat.id, msg_id)
             if cached:
-                u_id   = cached['user_id']
-                u_name = f"@{cached['username']}" if cached['username'] else (cached['first_name'] or '?')
-                content= cached['text'] or cached['caption'] or ''
-                ftype  = cached['file_type'] or ''
-                fid    = cached['file_id']
-                ts     = str(cached['ts'])[:16]
-                text   = (
-                    f'{EM_DEL} <b>Удалено сообщение!</b>\n\n'
-                    f'👤 <b>Кто:</b> {u_name}\n'
-                    f'🆔 <b>User ID:</b> <code>{u_id}</code>\n'
-                    f'💬 <b>Чат:</b> <code>{event.chat.id}</code>\n'
-                    f'⏰ <b>Время:</b> {ts}\n'
-                )
-                if content:
-                    text += f'\n<b>Текст:</b>\n<blockquote>{content[:800]}</blockquote>'
+                print(f"Удалено сообщение от {cached['user_id']} в чате {event.chat.id}")
             else:
-                text = (
-                    f'{EM_DEL} <b>Удалено сообщение!</b>\n\n'
-                    f'💬 Чат: <code>{event.chat.id}</code>\n'
-                    f'🆔 Msg ID: <code>{msg_id}</code>\n\n'
-                    f'⚠️ Сообщение не закешировано'
-                )
-                cached = None; fid = None; ftype = ''
-
-            # Отправляем уведомление ТОЛЬКО администраторам
-            for aid in (ADMIN_ID, ADMIN_ID_2):
-                try:
-                    await bot.send_message(aid, text, parse_mode=ParseMode.HTML)
-                    if cached and fid and ftype:
-                        cap = f'📎 Удалённый {ftype}'
-                        if ftype=='photo':      await bot.send_photo(aid,fid,caption=cap)
-                        elif ftype=='video':    await bot.send_video(aid,fid,caption=cap)
-                        elif ftype=='document': await bot.send_document(aid,fid,caption=cap)
-                        elif ftype=='voice':    await bot.send_voice(aid,fid,caption=cap)
-                        elif ftype=='sticker':  await bot.send_sticker(aid,fid)
-                        elif ftype=='video_note': await bot.send_video_note(aid,fid)
-                except Exception as e:
-                    print(f"notify {aid} err: {e}")
+                print(f"Удалено незакешированное сообщение {msg_id} в чате {event.chat.id}")
     except Exception as e:
         print(f"on_deleted err: {e}")
-        import traceback; traceback.print_exc()
 
 @dp.business_message()
 async def on_biz_msg(msg: types.Message):
-    """Обработка бизнес-сообщений"""
     try:
         bc_id = msg.business_connection_id
         if not bc_id: return
