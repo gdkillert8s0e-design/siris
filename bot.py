@@ -1,4 +1,4 @@
-  # ── SSL-патч для Windows (первая строка) ────────────────────────────────
+# ── SSL-патч для Windows (первая строка) ────────────────────────────────
 import ssl as _ssl
 _ssl._create_default_https_context = _ssl._create_unverified_context
 # ─────────────────────────────────────────────────────────────────────────
@@ -7,7 +7,7 @@ import os, json, asyncio, sqlite3, re, random
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -29,7 +29,7 @@ bot     = Bot(token=BOT_TOKEN)
 dp      = Dispatcher(storage=MemoryStorage())
 biz_con = {}  # bc_id -> owner_user_id
 
-# ── ID ПРЕМИУМ ЭМОДЗИ ──
+# ── ID ПРЕМИУМ ЭМОДЗИ (только для кнопок) ──
 EMOJI_ID = {
     'SETTINGS': '5870982283724328568',
     'PROFILE': '5870994129244131212',
@@ -55,108 +55,82 @@ EMOJI_ID = {
     'STAR': '6030425896546996257',
     'SPEECH': '5778208881301787450',
     'BLOCK': '5870675217193048938',
-    'CHANNEL': '6039391078136681499',
-    'ROBOT': '6030400221232501136',
-    'MESSAGE': '5778208881301787450',
-    'SMILE': '5870764288364252592',
-    'WAVE': '6041921818896372382',
-    'THUMB_UP': '6041720006973067267',
 }
 
+# Функция для премиум эмодзи в тексте
 def tge(eid, fb=''): 
     return f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>'
 
-# Переменные для текстовых сообщений с премиум эмодзи
-EM_OK    = tge(EMOJI_ID['CHECK'], '')
-EM_ERR   = tge(EMOJI_ID['CROSS'], '')
-EM_EYE   = tge(EMOJI_ID['EYE'], '')
-EM_BOT   = tge(EMOJI_ID['BOT'], '')
-EM_DEL   = tge(EMOJI_ID['TRASH'], '')
-EM_STATS = tge(EMOJI_ID['STATS'], '')
-EM_INFO  = tge(EMOJI_ID['INFO'], '')
-EM_GEAR  = tge(EMOJI_ID['SETTINGS'], '')
-EM_MSG   = tge(EMOJI_ID['SPEECH'], '')
-EM_SEND  = tge(EMOJI_ID['SEND'], '')
-EM_BL    = tge(EMOJI_ID['BLOCK'], '')
-EM_CMD   = tge(EMOJI_ID['STAR'], '')
-EM_USERS = tge(EMOJI_ID['USERS'], '')
-EM_USER  = tge(EMOJI_ID['PROFILE'], '')
-EM_LOCK  = tge(EMOJI_ID['LOCK'], '')
-EM_UNLOCK = tge(EMOJI_ID['UNLOCK'], '')
-EM_STAR  = tge(EMOJI_ID['STAR'], '')
-EM_BELL  = tge(EMOJI_ID['BELL'], '')
-EM_CLOCK = tge(EMOJI_ID['CLOCK'], '')
-EM_CHECK = tge(EMOJI_ID['CHECK'], '')
-EM_CROSS = tge(EMOJI_ID['CROSS'], '')
-EM_PENCIL = tge(EMOJI_ID['PENCIL'], '')
-EM_ARROW_LEFT = tge(EMOJI_ID['BACK'], '')
-EM_ARROW_RIGHT = tge(EMOJI_ID['SEND'], '')
-EM_WAVE = tge(EMOJI_ID['WAVE'], '')
-EM_THUMB_UP = tge(EMOJI_ID['THUMB_UP'], '')
-EM_TRASH = tge(EMOJI_ID['TRASH'], '')  # Добавлена недостающая переменная
-
-# ==================== КЛАВИАТУРЫ ====================
+# ==================== КЛАВИАТУРЫ (только премиум эмодзи в кнопках) ====================
 
 def main_kb():
-    """Главная клавиатура для всех пользователей"""
+    """Главная клавиатура - доступна всем"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="⚙️ Настройки",
+                text="Настройки",
                 callback_data='s_settings',
                 icon_custom_emoji_id=EMOJI_ID['SETTINGS']
             ),
             InlineKeyboardButton(
-                text="👁️ Слежка",
+                text="Слежка",
                 callback_data='s_spy',
                 icon_custom_emoji_id=EMOJI_ID['EYE']
             )
         ],
         [
             InlineKeyboardButton(
-                text="📢 Рассылка",
+                text="Рассылка",
                 callback_data='s_broadcast',
                 icon_custom_emoji_id=EMOJI_ID['MEGAPHONE']
             ),
             InlineKeyboardButton(
-                text="⛔ ЧС",
+                text="ЧС",
                 callback_data='s_bl',
                 icon_custom_emoji_id=EMOJI_ID['BLOCK']
             )
         ],
         [
             InlineKeyboardButton(
-                text="💬 Авто-ответ",
+                text="Авто-ответ",
                 callback_data='s_auto',
                 icon_custom_emoji_id=EMOJI_ID['SPEECH']
             ),
             InlineKeyboardButton(
-                text="🗑️ Очистить память",
+                text="Очистить память",
                 callback_data='s_clearmem',
                 icon_custom_emoji_id=EMOJI_ID['TRASH']
             )
         ],
+        [
+            InlineKeyboardButton(
+                text="Админ панель",
+                callback_data='s_admin',
+                icon_custom_emoji_id=EMOJI_ID['STATS']
+            )
+        ]
     ])
 
 def admin_kb():
-    """Админская клавиатура (скрыта от обычных пользователей)"""
+    """Админская клавиатура - только для админов"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="📊 Статистика",
+                text="Статистика",
                 callback_data='s_stats',
                 icon_custom_emoji_id=EMOJI_ID['STATS']
             ),
             InlineKeyboardButton(
-                text="👥 Пользователи",
+                text="Пользователи",
                 callback_data='s_users',
                 icon_custom_emoji_id=EMOJI_ID['USERS']
             )
         ],
         [
             InlineKeyboardButton(
-                text="◀️ Главное меню",
-                callback_data='back'
+                text="Назад",
+                callback_data='back',
+                icon_custom_emoji_id=EMOJI_ID['BACK']
             )
         ]
     ])
@@ -165,7 +139,7 @@ def back_kb(cb='back'):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="◀️ Назад",
+                text="Назад",
                 callback_data=cb,
                 icon_custom_emoji_id=EMOJI_ID['BACK']
             )
@@ -177,42 +151,42 @@ def settings_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text=f"{'✅' if ai_status else '❌'} ИИ-ответы",
+                text=f"{'Вкл' if ai_status else 'Выкл'} ИИ",
                 callback_data='t_ai',
                 icon_custom_emoji_id=EMOJI_ID['BOT']
             )
         ],
         [
             InlineKeyboardButton(
-                text="✏️ Изменить промпт",
+                text="Промпт",
                 callback_data='t_prompt',
                 icon_custom_emoji_id=EMOJI_ID['PENCIL']
             )
         ],
         [
             InlineKeyboardButton(
-                text=f"🤖 Модель: {gs('ai_model').split('-')[0]}",
+                text=f"Модель: {gs('ai_model').split('-')[0]}",
                 callback_data='t_model',
                 icon_custom_emoji_id=EMOJI_ID['BOT']
             )
         ],
         [
             InlineKeyboardButton(
-                text=f"💬 Reply-шанс: {gs('reply_chance')}%",
+                text=f"Шанс: {gs('reply_chance')}%",
                 callback_data='t_chance',
                 icon_custom_emoji_id=EMOJI_ID['SPEECH']
             )
         ],
         [
             InlineKeyboardButton(
-                text=f"⚡ Скорость: x{gs('typing_speed')}",
+                text=f"Скорость: x{gs('typing_speed')}",
                 callback_data='t_speed',
                 icon_custom_emoji_id=EMOJI_ID['CLOCK']
             )
         ],
         [
             InlineKeyboardButton(
-                text="◀️ Назад",
+                text="Назад",
                 callback_data='back',
                 icon_custom_emoji_id=EMOJI_ID['BACK']
             )
@@ -224,14 +198,14 @@ def spy_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text=f"{'👁️' if spy_on else '👁️‍🗨️'} Слежка за удалёнными",
+                text=f"{'Вкл' if spy_on else 'Выкл'} слежку",
                 callback_data='t_spy',
                 icon_custom_emoji_id=EMOJI_ID['EYE'] if spy_on else EMOJI_ID['EYE_HIDDEN']
             )
         ],
         [
             InlineKeyboardButton(
-                text="◀️ Назад",
+                text="Назад",
                 callback_data='back',
                 icon_custom_emoji_id=EMOJI_ID['BACK']
             )
@@ -240,24 +214,24 @@ def spy_kb():
 
 def model_kb():
     models = [
-        ('llama-3.3-70b-versatile', 'Llama 3.3 70B'),
-        ('llama-3.1-8b-instant', 'Llama 3.1 8B'),
-        ('mixtral-8x7b-32768', 'Mixtral 8x7B'),
-        ('gemma2-9b-it', 'Gemma2 9B')
+        ('llama-3.3-70b-versatile', 'Llama 70B'),
+        ('llama-3.1-8b-instant', 'Llama 8B'),
+        ('mixtral-8x7b-32768', 'Mixtral'),
+        ('gemma2-9b-it', 'Gemma2')
     ]
     cur = gs('ai_model')
     rows = []
     for v, l in models:
         rows.append([
             InlineKeyboardButton(
-                text=f"{'✅ ' if v == cur else ''}{l}",
+                text=l,
                 callback_data=f'm_{v}',
                 icon_custom_emoji_id=EMOJI_ID['BOT']
             )
         ])
     rows.append([
         InlineKeyboardButton(
-            text="◀️ Назад",
+            text="Назад",
             callback_data='s_settings',
             icon_custom_emoji_id=EMOJI_ID['BACK']
         )
@@ -272,14 +246,14 @@ def bl_kb():
         n = f"@{r['username']}" if r['username'] else str(r['user_id'])
         rows.append([
             InlineKeyboardButton(
-                text=f"❌ {n}",
+                text=n,
                 callback_data=f'bl_rm_{r["user_id"]}',
                 icon_custom_emoji_id=EMOJI_ID['CROSS']
             )
         ])
     rows.append([
         InlineKeyboardButton(
-            text="◀️ Назад",
+            text="Назад",
             callback_data='back',
             icon_custom_emoji_id=EMOJI_ID['BACK']
         )
@@ -319,7 +293,7 @@ def init_db():
             user_id INTEGER, role TEXT, content TEXT, ts TEXT)''')
         for k,v in {
             'ai_enabled':'1','spy_enabled':'1','notify_deleted':'1',
-            'log_msgs':'1','ai_prompt':'Ты — профессиональный помощник бизнес-аккаунта. Отвечай вежливо и по делу.',
+            'log_msgs':'1','ai_prompt':'Ты — профессиональный помощник. Отвечай вежливо и по делу.',
             'ai_model':'llama-3.3-70b-versatile','reply_chance':'30',
             'typing_speed':'1.0','auto_reply':'',
         }.items():
@@ -485,295 +459,104 @@ async def send_biz_reply(chat_id, user_id, text, bc_id, reply_to=None):
         except Exception as e: print(f"send_biz_reply err: {e}")
         if idx<len(parts)-1: await asyncio.sleep(random.uniform(0.5,2.0))
 
-# ==================== КОМАНДНЫЙ ИИ ====================
-COMMANDER_PROMPT = """Ты — командный ИИ для управления Telegram бизнес-ботом.
-Пользователь пишет тебе команды на естественном языке. Твоя задача — понять что он хочет
-и вернуть JSON с действием.
-
-Доступные действия:
-- {"action":"stats"} — показать статистику (только для админов)
-- {"action":"users"} — список пользователей (только для админов)
-- {"action":"broadcast","text":"..."} — разослать сообщение ВСЕМ пользователям из БД
-- {"action":"ai_on"} — включить ИИ-ответы
-- {"action":"ai_off"} — выключить ИИ-ответы
-- {"action":"spy_on"} — включить слежку
-- {"action":"spy_off"} — выключить слежку
-- {"action":"blacklist_add","user_id":123} — добавить в чёрный список
-- {"action":"blacklist_remove","user_id":123} — убрать из ЧС
-- {"action":"blacklist_show"} — показать ЧС
-- {"action":"set_prompt","text":"..."} — изменить промпт ИИ
-- {"action":"clear_memory"} — очистить всю AI-память
-- {"action":"menu"} — показать главное меню
-- {"action":"chat","text":"..."} — просто поговорить / ответить на вопрос
-
-Всегда возвращай ТОЛЬКО валидный JSON без пояснений и без markdown."""
-
-async def execute_command(uid: int, text: str, message: types.Message):
-    """Обработка команд через ИИ (только для админов)"""
-    if not is_admin(uid):
-        await message.answer(f"{EM_ERR} Доступ запрещён. Эта команда только для администраторов.", parse_mode=ParseMode.HTML)
-        return
-    
-    result = await ask(uid, text, prompt_override=COMMANDER_PROMPT, history_override=[])
-    if not result:
-        await message.answer(f'{EM_ERR} ИИ не ответил.', parse_mode=ParseMode.HTML)
-        return
-
-    try:
-        json_match = re.search(r'\{[\s\S]*\}', result)
-        if not json_match:
-            raise ValueError("no json")
-        cmd = json.loads(json_match.group())
-    except Exception:
-        await message.answer(result, parse_mode=ParseMode.HTML)
-        return
-
-    action = cmd.get('action','chat')
-
-    if action == 'stats':
-        u,m,bl,tm = get_stats()
-        rows = get_all_users()[:5]
-        top = '\n'.join(f"  {i+1}. {'@'+r['username'] if r['username'] else r['first_name'] or str(r['user_id'])} — {r['msg_count']}"
-                        for i,r in enumerate(rows))
-        await message.answer(
-            f'{EM_STATS} <b>Статистика</b>\n\n'
-            f'👥 Пользователей: <b>{u}</b>\n'
-            f'💬 Сообщений: <b>{m}</b>\n'
-            f'⛔ В ЧС: <b>{bl}</b>\n'
-            f'⭐️ Всего: <b>{tm}</b>\n\n'
-            f'<b>Топ-5:</b>\n{top or "нет данных"}',
-            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
-
-    elif action == 'users':
-        rows = get_all_users()
-        if not rows:
-            await message.answer(f'{EM_INFO} Пользователей пока нет.', parse_mode=ParseMode.HTML)
-            return
-        lines = [f"• 👤 <code>{r['user_id']}</code> {'@'+r['username'] if r['username'] else r['first_name'] or '?'} — {r['msg_count']} сообщ."
-                 for r in rows[:20]]
-        await message.answer(
-            f'👥 <b>Пользователи ({len(rows)})</b>\n\n'+'\n'.join(lines),
-            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
-
-    elif action == 'broadcast':
-        btext = cmd.get('text','')
-        if not btext:
-            await message.answer(f'{EM_ERR} Нет текста для рассылки.', parse_mode=ParseMode.HTML)
-            return
-        rows = get_all_users()
-        if not rows:
-            await message.answer(f'{EM_INFO} Нет пользователей для рассылки.', parse_mode=ParseMode.HTML)
-            return
-        status = await message.answer(f'{EM_SEND} Начинаю рассылку {len(rows)} пользователям...', parse_mode=ParseMode.HTML)
-        ok=fail=0
-        sent_chats = set()
-        bc_id = next(iter(biz_con), None)
-        for r in rows:
-            chat_id = r['chat_id']
-            if not chat_id or chat_id in sent_chats: continue
-            sent_chats.add(chat_id)
-            if not bc_id: continue
-            try:
-                await bot.send_message(chat_id=chat_id, text=btext, business_connection_id=bc_id)
-                ok+=1; await asyncio.sleep(0.1)
-            except Exception as e:
-                fail+=1; print(f"broadcast err {chat_id}: {e}")
-        await status.edit_text(
-            f'{EM_OK} <b>Рассылка завершена!</b>\n\n✅ Отправлено: {ok}\n❌ Ошибок: {fail}',
-            parse_mode=ParseMode.HTML)
-
-    elif action == 'ai_on':
-        ss('ai_enabled','1')
-        await message.answer(f'{EM_OK} ИИ-ответы <b>включены</b>.', reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-
-    elif action == 'ai_off':
-        ss('ai_enabled','0')
-        await message.answer(f'{EM_ERR} ИИ-ответы <b>выключены</b>.', reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-
-    elif action == 'spy_on':
-        ss('spy_enabled','1')
-        await message.answer(f'{EM_EYE} Слежка <b>включена</b>.', reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-
-    elif action == 'spy_off':
-        ss('spy_enabled','0')
-        await message.answer(f'{EM_EYE} Слежка <b>выключена</b>.', reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-
-    elif action == 'blacklist_add':
-        try:
-            bid = int(cmd['user_id'])
-            with db() as conn:
-                conn.execute('INSERT OR IGNORE INTO blacklist VALUES(?,?,?)',(bid,'',datetime.now().isoformat()))
-            await message.answer(f'{EM_OK} ID <code>{bid}</code> добавлен в ЧС.', parse_mode=ParseMode.HTML)
-        except Exception as e:
-            await message.answer(f'{EM_ERR} Ошибка: {e}', parse_mode=ParseMode.HTML)
-
-    elif action == 'blacklist_remove':
-        try:
-            bid = int(cmd['user_id'])
-            with db() as conn:
-                conn.execute('DELETE FROM blacklist WHERE user_id=?',(bid,))
-            await message.answer(f'{EM_OK} ID <code>{bid}</code> удалён из ЧС.', parse_mode=ParseMode.HTML)
-        except Exception as e:
-            await message.answer(f'{EM_ERR} Ошибка: {e}', parse_mode=ParseMode.HTML)
-
-    elif action == 'blacklist_show':
-        with db() as conn:
-            bl = conn.execute('SELECT * FROM blacklist').fetchall()
-        if not bl:
-            await message.answer(f'{EM_BL} Чёрный список пуст.', parse_mode=ParseMode.HTML)
-        else:
-            lines = [f"• 👤 <code>{r['user_id']}</code> {'@'+r['username'] if r['username'] else ''}" for r in bl]
-            await message.answer(f'⛔ <b>Чёрный список:</b>\n\n'+'\n'.join(lines), parse_mode=ParseMode.HTML)
-
-    elif action == 'set_prompt':
-        pt = cmd.get('text','')
-        if pt:
-            ss('ai_prompt', pt)
-            await message.answer(f'{EM_OK} Промпт обновлён!\n\n<blockquote>{pt[:300]}</blockquote>', parse_mode=ParseMode.HTML)
-
-    elif action == 'clear_memory':
-        clear_ai_mem_all()
-        await message.answer(f'{EM_OK} Вся AI-память очищена.', parse_mode=ParseMode.HTML)
-
-    elif action == 'menu':
-        await message.answer(
-            f'⚙️ <b>Business Monitor Bot</b>\n\n'
-            f'🤖 ИИ-ответы: <b>{"🟢 Вкл" if gs("ai_enabled")=="1" else "🔴 Выкл"}</b>\n'
-            f'👁 Слежка: <b>{"🟢 Вкл" if gs("spy_enabled")=="1" else "🔴 Выкл"}</b>',
-            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-
-    else:
-        chat_text = cmd.get('text', text)
-        reply = await ask(uid, chat_text)
-        if reply:
-            await message.answer(reply, parse_mode=ParseMode.HTML)
-
 # ==================== HANDLERS ====================
 
 @dp.message(Command('start'))
 async def cmd_start(msg: types.Message):
-    """Приветственное сообщение с описанием бота (доступно всем)"""
     welcome_text = (
-        f"{EM_BOT} <b>Business Monitor Bot</b>\n\n"
-        f"{EM_WAVE} <b>Привет! Я бот для автоматизации бизнес-аккаунта Telegram.</b>\n\n"
-        f"{EM_GEAR} <b>Мои возможности:</b>\n"
-        f"• {EM_BOT} <b>ИИ-ответы</b> — автоматически отвечаю на сообщения клиентов с помощью ИИ\n"
-        f"• {EM_EYE} <b>Слежка за удалёнными</b> — перехватываю и сохраняю удалённые сообщения\n"
-        f"• {EM_SEND} <b>Рассылка</b> — массовая отправка сообщений всем пользователям\n"
-        f"• {EM_BL} <b>Чёрный список</b> — блокировка нежелательных пользователей\n"
-        f"• {EM_MSG} <b>Авто-ответ</b> — приветственное сообщение для новых клиентов\n"
-        f"• {EM_TRASH} <b>AI-память</b> — сохранение контекста диалога для ИИ\n\n"
-        f"{EM_INFO} <b>Как использовать:</b>\n"
-        f"1️⃣ Подключите меня к бизнес-аккаунту Telegram\n"
-        f"2️⃣ Настройте ИИ-ответы в разделе «Настройки»\n"
-        f"3️⃣ Я буду автоматически отвечать на сообщения клиентов\n"
-        f"4️⃣ Удалённые сообщения сохраняются в базу данных\n\n"
-        f"{EM_THUMB_UP} <i>Используйте кнопки ниже для управления ботом</i>"
+        "🤖 <b>Business Monitor Bot</b>\n\n"
+        "👋 <b>Привет! Я бот для автоматизации бизнес-аккаунта.</b>\n\n"
+        "⚙️ <b>Мои возможности:</b>\n"
+        "• 🤖 ИИ-ответы — автоматически отвечаю на сообщения\n"
+        "• 👁 Слежка — сохраняю удалённые сообщения\n"
+        "• 📢 Рассылка — массовая отправка\n"
+        "• ⛔ ЧС — блокировка пользователей\n"
+        "• 💬 Авто-ответ — приветствие для новых\n"
+        "• 🗑 AI-память — сохранение контекста\n\n"
+        "📱 <b>Используйте кнопки ниже</b>"
     )
-    
     await msg.answer(welcome_text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
-@dp.message(Command('clear'))
-async def cmd_clear(msg: types.Message):
-    if not is_admin(msg.from_user.id):
-        await msg.answer(f"{EM_ERR} Доступ запрещён. Эта команда только для администраторов.", parse_mode=ParseMode.HTML)
+@dp.callback_query(F.data == 's_admin')
+async def cb_admin(cb: types.CallbackQuery):
+    if not is_admin(cb.from_user.id):
+        await cb.answer("⛔ Доступ только для админов", show_alert=True)
         return
-    clear_ai_mem(msg.from_user.id)
-    await msg.answer(f'{EM_OK} AI-память очищена.', parse_mode=ParseMode.HTML)
-
-@dp.callback_query(F.data=='back')
-async def cb_back(cb: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    try:
-        if is_admin(cb.from_user.id):
-            await cb.message.edit_text(
-                f'⚙️ <b>Business Monitor Bot</b>\n\n'
-                f'🤖 ИИ-ответы: <b>{"🟢 Вкл" if gs("ai_enabled")=="1" else "🔴 Выкл"}</b>\n'
-                f'👁 Слежка: <b>{"🟢 Вкл" if gs("spy_enabled")=="1" else "🔴 Выкл"}</b>',
-                reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-        else:
-            await cb.message.edit_text(
-                f'⚙️ <b>Business Monitor Bot</b>\n\n'
-                f'🤖 ИИ-ответы: <b>{"🟢 Вкл" if gs("ai_enabled")=="1" else "🔴 Выкл"}</b>\n'
-                f'👁 Слежка: <b>{"🟢 Вкл" if gs("spy_enabled")=="1" else "🔴 Выкл"}</b>',
-                reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+    await cb.message.edit_text(
+        "👑 <b>Админ панель</b>\n\nВыберите действие:",
+        reply_markup=admin_kb(),
+        parse_mode=ParseMode.HTML
+    )
     await cb.answer()
 
-@dp.callback_query(F.data=='s_settings')
-async def cb_settings(cb: types.CallbackQuery):
-    try:
-        await cb.message.edit_text(
-            f'⚙️ <b>Настройки ИИ-ответов</b>\n\n'
-            f'Статус: <b>{"🟢 Включено" if gs("ai_enabled")=="1" else "🔴 Выключено"}</b>\n'
-            f'Модель: <code>{gs("ai_model")}</code>\n'
-            f'Reply-шанс: <b>{gs("reply_chance")}%</b>\n'
-            f'Скорость: <b>x{gs("typing_speed")}</b>',
-            reply_markup=settings_kb(), parse_mode=ParseMode.HTML)
-    except: pass
-    await cb.answer()
-
-@dp.callback_query(F.data=='s_stats')
-async def cb_stats_cb(cb: types.CallbackQuery):
+@dp.callback_query(F.data == 's_stats')
+async def cb_stats(cb: types.CallbackQuery):
     if not is_admin(cb.from_user.id):
         await cb.answer("⛔ Доступ запрещён", show_alert=True)
         return
-    u,m,bl,tm = get_stats()
+    u, m, bl, tm = get_stats()
     rows = get_all_users()[:5]
-    top = '\n'.join(f"  {i+1}. {'@'+r['username'] if r['username'] else r['first_name'] or str(r['user_id'])} — {r['msg_count']}"
-                    for i,r in enumerate(rows))
-    try:
-        await cb.message.edit_text(
-            f'{EM_STATS} <b>Статистика</b>\n\n'
-            f'👥 Пользователей: <b>{u}</b>\n'
-            f'💬 Сообщений: <b>{m}</b>\n'
-            f'⛔ В ЧС: <b>{bl}</b>\n'
-            f'⭐️ Всего: <b>{tm}</b>\n\n'
-            f'<b>Топ-5:</b>\n{top or "нет данных"}',
-            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
-    except Exception as e:
-        print(f"Stats error: {e}")
-        await cb.message.answer(f'{EM_STATS} Статистика:\nПользователей: {u}\nСообщений: {m}\nЧС: {bl}\nВсего: {tm}')
+    top = '\n'.join(f"  {i+1}. {r['username'] or r['first_name'] or r['user_id']} — {r['msg_count']}"
+                    for i, r in enumerate(rows))
+    await cb.message.edit_text(
+        f"📊 <b>Статистика</b>\n\n"
+        f"👥 Пользователей: <b>{u}</b>\n"
+        f"💬 Сообщений: <b>{m}</b>\n"
+        f"⛔ В ЧС: <b>{bl}</b>\n"
+        f"⭐️ Всего: <b>{tm}</b>\n\n"
+        f"<b>Топ-5:</b>\n{top or 'нет данных'}",
+        reply_markup=back_kb(),
+        parse_mode=ParseMode.HTML
+    )
     await cb.answer()
 
-@dp.callback_query(F.data=='s_users')
-async def cb_users_cb(cb: types.CallbackQuery):
+@dp.callback_query(F.data == 's_users')
+async def cb_users(cb: types.CallbackQuery):
     if not is_admin(cb.from_user.id):
         await cb.answer("⛔ Доступ запрещён", show_alert=True)
         return
     rows = get_all_users()
-    lines = [f"• 👤 <code>{r['user_id']}</code> {'@'+r['username'] if r['username'] else r['first_name'] or '?'} — {r['msg_count']}"
-             for r in rows[:20]]
-    try:
-        await cb.message.edit_text(
-            f'👥 <b>Пользователи ({len(rows)})</b>\n\n' + ('\n'.join(lines) if lines else 'Нет данных'),
-            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+    lines = [f"• <code>{r['user_id']}</code> {r['username'] or r['first_name'] or '?'} — {r['msg_count']}"
+             for r in rows[:30]]
+    await cb.message.edit_text(
+        f"👥 <b>Пользователи ({len(rows)})</b>\n\n" + ('\n'.join(lines) if lines else 'Нет данных'),
+        reply_markup=back_kb(),
+        parse_mode=ParseMode.HTML
+    )
     await cb.answer()
 
-@dp.callback_query(F.data=='t_ai')
+@dp.callback_query(F.data == 's_settings')
+async def cb_settings(cb: types.CallbackQuery):
+    ai_status = gs('ai_enabled') == '1'
+    await cb.message.edit_text(
+        f"⚙️ <b>Настройки ИИ</b>\n\n"
+        f"Статус: <b>{'🟢 Вкл' if ai_status else '🔴 Выкл'}</b>\n"
+        f"Модель: <code>{gs('ai_model')}</code>\n"
+        f"Шанс ответа: <b>{gs('reply_chance')}%</b>\n"
+        f"Скорость: <b>x{gs('typing_speed')}</b>",
+        reply_markup=settings_kb(),
+        parse_mode=ParseMode.HTML
+    )
+    await cb.answer()
+
+@dp.callback_query(F.data == 't_ai')
 async def cb_t_ai(cb: types.CallbackQuery):
     current = gs('ai_enabled')
     new = '0' if current == '1' else '1'
     ss('ai_enabled', new)
-    
-    if new == '1':
-        await cb.answer('✅ ИИ-ответы включены!')
-        await cb.message.answer(f'{EM_OK} <b>ИИ-ответы включены!</b>\nТеперь бот будет отвечать на сообщения собеседников.', parse_mode=ParseMode.HTML)
-    else:
-        await cb.answer('❌ ИИ-ответы выключены!')
-        await cb.message.answer(f'{EM_ERR} <b>ИИ-ответы выключены!</b>\nБот больше не будет отвечать автоматически.', parse_mode=ParseMode.HTML)
-    
+    await cb.answer(f'ИИ {"включён" if new=="1" else "выключен"}')
     await cb_settings(cb)
 
-@dp.callback_query(F.data=='t_prompt')
+@dp.callback_query(F.data == 't_prompt')
 async def cb_t_prompt(cb: types.CallbackQuery, state: FSMContext):
     cur = gs('ai_prompt')
-    try:
-        await cb.message.edit_text(
-            f'✏️ <b>Изменение промпта</b>\n\n<b>Текущий:</b>\n<blockquote>{cur[:300]}</blockquote>\n\nОтправьте новый:',
-            reply_markup=back_kb('s_settings'), parse_mode=ParseMode.HTML)
-    except: pass
+    await cb.message.edit_text(
+        f"✏️ <b>Изменение промпта</b>\n\n"
+        f"<b>Текущий:</b>\n<blockquote>{cur[:300]}</blockquote>\n\n"
+        f"Отправьте новый текст:",
+        reply_markup=back_kb('s_settings'),
+        parse_mode=ParseMode.HTML
+    )
     await state.set_state(SetPrompt.waiting)
     await cb.answer()
 
@@ -782,170 +565,180 @@ async def proc_prompt(msg: types.Message, state: FSMContext):
     if msg.text:
         ss('ai_prompt', msg.text.strip())
         await state.clear()
-        await msg.answer(f'{EM_OK} Промпт обновлён!', reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        await msg.answer("✅ Промпт обновлён!", reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
-@dp.callback_query(F.data=='t_model')
+@dp.callback_query(F.data == 't_model')
 async def cb_t_model(cb: types.CallbackQuery):
-    try:
-        await cb.message.edit_text(
-            f'🤖 <b>Выберите модель:</b>',
-            reply_markup=model_kb(),
-            parse_mode=ParseMode.HTML)
-    except: pass
+    await cb.message.edit_text(
+        "🤖 <b>Выберите модель:</b>",
+        reply_markup=model_kb(),
+        parse_mode=ParseMode.HTML
+    )
     await cb.answer()
 
 @dp.callback_query(F.data.startswith('m_'))
 async def cb_set_model(cb: types.CallbackQuery):
     ss('ai_model', cb.data[2:])
-    await cb.answer(f'Модель: {cb.data[2:].split("-")[0]}')
+    await cb.answer(f'Модель изменена')
     await cb_settings(cb)
 
-@dp.callback_query(F.data=='t_chance')
+@dp.callback_query(F.data == 't_chance')
 async def cb_chance(cb: types.CallbackQuery):
-    steps=[0,10,20,30,50,70,100]; cur=int(gs('reply_chance') or 30)
-    idx=steps.index(cur) if cur in steps else 3
-    new=steps[(idx+1)%len(steps)]; ss('reply_chance',str(new))
-    await cb.answer(f'Reply-шанс: {new}%')
+    steps = [0, 10, 20, 30, 50, 70, 100]
+    cur = int(gs('reply_chance') or 30)
+    idx = steps.index(cur) if cur in steps else 3
+    new = steps[(idx + 1) % len(steps)]
+    ss('reply_chance', str(new))
+    await cb.answer(f'Шанс: {new}%')
     await cb_settings(cb)
 
-@dp.callback_query(F.data=='t_speed')
+@dp.callback_query(F.data == 't_speed')
 async def cb_speed(cb: types.CallbackQuery):
-    steps=[0.5,1.0,1.5,2.0,3.0]
-    try: idx=steps.index(float(gs('typing_speed') or 1))
-    except: idx=1
-    new=steps[(idx+1)%len(steps)]; ss('typing_speed',str(new))
+    steps = [0.5, 1.0, 1.5, 2.0, 3.0]
+    try:
+        idx = steps.index(float(gs('typing_speed') or 1))
+    except:
+        idx = 1
+    new = steps[(idx + 1) % len(steps)]
+    ss('typing_speed', str(new))
     await cb.answer(f'Скорость x{new}')
     await cb_settings(cb)
 
-@dp.callback_query(F.data=='s_spy')
+@dp.callback_query(F.data == 's_spy')
 async def cb_spy(cb: types.CallbackQuery):
-    try:
-        await cb.message.edit_text(
-            f'{EM_EYE} <b>Слежка за удалёнными сообщениями</b>\n\n'
-            f'Когда кто-то удаляет сообщение в диалоге — бот сохраняет его в базу данных.\n\n'
-            f'Текущий статус: <b>{"🟢 Включена" if gs("spy_enabled")=="1" else "🔴 Выключена"}</b>',
-            reply_markup=spy_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+    spy_on = gs('spy_enabled') == '1'
+    await cb.message.edit_text(
+        f"👁 <b>Слежка за удалёнными</b>\n\n"
+        f"Статус: <b>{'🟢 Вкл' if spy_on else '🔴 Выкл'}</b>\n\n"
+        f"При удалении сообщения бот сохраняет его в базу данных.",
+        reply_markup=spy_kb(),
+        parse_mode=ParseMode.HTML
+    )
     await cb.answer()
 
-@dp.callback_query(F.data=='t_spy')
+@dp.callback_query(F.data == 't_spy')
 async def cb_t_spy(cb):
     new = toggle('spy_enabled')
-    status = "включена" if new == "1" else "выключена"
-    await cb.answer(f'Слежка {status}')
+    await cb.answer(f'Слежка {"вкл" if new=="1" else "выкл"}')
     await cb_spy(cb)
 
-@dp.callback_query(F.data=='s_broadcast')
+@dp.callback_query(F.data == 's_broadcast')
 async def cb_broadcast_start(cb: types.CallbackQuery, state: FSMContext):
-    rows=get_all_users()
-    try:
-        await cb.message.edit_text(
-            f'{EM_SEND} <b>Рассылка</b>\n\nПользователей в базе: <b>{len(rows)}</b>\n\nОтправьте текст для рассылки:',
-            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+    rows = get_all_users()
+    await cb.message.edit_text(
+        f"📢 <b>Рассылка</b>\n\n"
+        f"Пользователей: <b>{len(rows)}</b>\n\n"
+        f"Отправьте текст для рассылки:",
+        reply_markup=back_kb(),
+        parse_mode=ParseMode.HTML
+    )
     await state.set_state(BroadcastState.waiting)
     await cb.answer()
 
 @dp.message(BroadcastState.waiting)
 async def proc_broadcast(msg: types.Message, state: FSMContext):
     text = msg.text or msg.caption or ''
-    if not text: return
+    if not text:
+        return
     await state.clear()
-    rows=get_all_users()
-    status=await msg.answer(f'{EM_SEND} Рассылаю {len(rows)} пользователям...', parse_mode=ParseMode.HTML)
-    ok=fail=0; sent=set()
+    rows = get_all_users()
+    status = await msg.answer(f"📢 Рассылаю {len(rows)} пользователям...")
+    ok = fail = 0
+    sent = set()
     bc_id = next(iter(biz_con), None)
     if not bc_id:
-        await status.edit_text(f'{EM_ERR} Нет активного бизнес-подключения!', parse_mode=ParseMode.HTML)
+        await status.edit_text("❌ Нет активного бизнес-подключения!")
         return
     
     for r in rows:
-        chat_id=r['chat_id']
-        if not chat_id or chat_id in sent: continue
+        chat_id = r['chat_id']
+        if not chat_id or chat_id in sent:
+            continue
         sent.add(chat_id)
         try:
-            if msg.photo and msg.photo[-1].file_id:
-                await bot.send_photo(chat_id, msg.photo[-1].file_id, caption=text, business_connection_id=bc_id)
-            elif msg.video and msg.video.file_id:
-                await bot.send_video(chat_id, msg.video.file_id, caption=text, business_connection_id=bc_id)
-            elif msg.document and msg.document.file_id:
-                await bot.send_document(chat_id, msg.document.file_id, caption=text, business_connection_id=bc_id)
-            else:
-                await bot.send_message(chat_id=chat_id, text=text, business_connection_id=bc_id)
-            ok+=1; await asyncio.sleep(0.08)
+            await bot.send_message(chat_id=chat_id, text=text, business_connection_id=bc_id)
+            ok += 1
+            await asyncio.sleep(0.1)
         except Exception as e:
-            fail+=1; print(f"broadcast {chat_id}: {e}")
+            fail += 1
+            print(f"broadcast err {chat_id}: {e}")
     await status.edit_text(
-        f'{EM_OK} <b>Рассылка завершена!</b>\n✅ Отправлено: {ok}\n❌ Ошибок: {fail}',
-        reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        f"✅ <b>Рассылка завершена!</b>\n✅ Отправлено: {ok}\n❌ Ошибок: {fail}",
+        reply_markup=main_kb(),
+        parse_mode=ParseMode.HTML
+    )
 
-@dp.callback_query(F.data=='s_auto')
+@dp.callback_query(F.data == 's_auto')
 async def cb_auto(cb: types.CallbackQuery, state: FSMContext):
-    auto=gs('auto_reply')
-    text_msg = f'{EM_MSG} <b>Авто-ответ на первое сообщение</b>\n\n'
+    auto = gs('auto_reply')
+    text_msg = f"💬 <b>Авто-ответ</b>\n\n"
     if auto:
-        text_msg += f'Текущий:\n<blockquote>{auto}</blockquote>\n\n'
+        text_msg += f"Текущий:\n<blockquote>{auto}</blockquote>\n\n"
     else:
-        text_msg += f'Не задан.\n\n'
-    text_msg += f'Отправьте текст (или <code>-</code> чтобы выключить):'
-    try:
-        await cb.message.edit_text(
-            text_msg,
-            reply_markup=back_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+        text_msg += f"Не задан.\n\n"
+    text_msg += f"Отправьте текст (или <code>-</code> чтобы выключить):"
+    await cb.message.edit_text(
+        text_msg,
+        reply_markup=back_kb(),
+        parse_mode=ParseMode.HTML
+    )
     await state.set_state(SetAutoReply.waiting)
     await cb.answer()
 
 @dp.message(SetAutoReply.waiting)
 async def proc_auto(msg: types.Message, state: FSMContext):
-    t=msg.text.strip() if msg.text else ''
-    ss('auto_reply','' if t=='-' else t)
+    t = msg.text.strip() if msg.text else ''
+    ss('auto_reply', '' if t == '-' else t)
     await state.clear()
-    await msg.answer(f'{EM_OK} {"Авто-ответ выключен" if t=="-" else "Авто-ответ установлен"}.', reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    await msg.answer(f"✅ {'Авто-ответ выключен' if t=='-' else 'Авто-ответ установлен'}.", reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
-@dp.callback_query(F.data=='s_bl')
+@dp.callback_query(F.data == 's_bl')
 async def cb_bl(cb: types.CallbackQuery):
     with db() as c:
-        bl=c.execute('SELECT COUNT(*) FROM blacklist').fetchone()[0]
-    try:
+        bl = c.execute('SELECT * FROM blacklist').fetchall()
+    if not bl:
         await cb.message.edit_text(
-            f'⛔ <b>Чёрный список</b>\nВсего: <b>{bl}</b>\n\nНажмите на пользователя чтобы удалить.',
-            reply_markup=bl_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+            f"⛔ <b>Чёрный список пуст</b>",
+            reply_markup=back_kb(),
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        await cb.message.edit_text(
+            f"⛔ <b>Чёрный список</b>\nВсего: {len(bl)}\n\nНажмите для удаления:",
+            reply_markup=bl_kb(),
+            parse_mode=ParseMode.HTML
+        )
     await cb.answer()
 
 @dp.callback_query(F.data.startswith('bl_rm_'))
 async def cb_bl_rm(cb: types.CallbackQuery):
-    uid=int(cb.data.replace('bl_rm_',''))
-    with db() as c: c.execute('DELETE FROM blacklist WHERE user_id=?',(uid,))
+    uid = int(cb.data.replace('bl_rm_', ''))
+    with db() as c:
+        c.execute('DELETE FROM blacklist WHERE user_id=?', (uid,))
     await cb.answer(f'Удалён: {uid}')
     await cb_bl(cb)
 
-@dp.callback_query(F.data=='s_clearmem')
+@dp.callback_query(F.data == 's_clearmem')
 async def cb_clearmem(cb: types.CallbackQuery):
     clear_ai_mem_all()
     await cb.answer('AI-память очищена!')
-    try:
-        await cb.message.edit_text(
-            f'{EM_OK} <b>AI-память очищена!</b>',
-            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+    await cb.message.edit_text(
+        "✅ <b>AI-память очищена!</b>",
+        reply_markup=main_kb(),
+        parse_mode=ParseMode.HTML
+    )
 
-@dp.message()
-async def on_user_msg(msg: types.Message, state: FSMContext):
-    if hasattr(msg,'business_connection_id') and msg.business_connection_id: return
-    if msg.text and msg.text.startswith('/'): return
-    current_state = await state.get_state()
-    if current_state: return
-    text = msg.text or ''
-    if not text: return
-    # Обычный пользователь может общаться с ботом через ИИ
-    if not is_admin(msg.from_user.id):
-        reply = await ask(msg.from_user.id, text)
-        if reply:
-            await msg.answer(reply, parse_mode=ParseMode.HTML)
-    else:
-        await execute_command(msg.from_user.id, text, msg)
+@dp.callback_query(F.data == 'back')
+async def cb_back(cb: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await cb.message.edit_text(
+        "🤖 <b>Business Monitor Bot</b>\n\n"
+        f"🤖 ИИ: <b>{'🟢 Вкл' if gs('ai_enabled')=='1' else '🔴 Выкл'}</b>\n"
+        f"👁 Слежка: <b>{'🟢 Вкл' if gs('spy_enabled')=='1' else '🔴 Выкл'}</b>",
+        reply_markup=main_kb(),
+        parse_mode=ParseMode.HTML
+    )
+    await cb.answer()
 
 # ==================== BUSINESS HANDLERS ====================
 
@@ -958,10 +751,9 @@ async def on_biz_conn(bc: types.BusinessConnection):
             print(f"Бизнес-подключение: {bc.id} -> {bc.user.id}")
             for aid in (ADMIN_ID, ADMIN_ID_2):
                 try:
-                    await bot.send_message(aid,
-                        f'{EM_OK} <b>Бизнес подключён!</b>\nID: <code>{bc.id}</code>',
-                        parse_mode=ParseMode.HTML)
-                except: pass
+                    await bot.send_message(aid, f"✅ Бизнес подключён!\nID: {bc.id}")
+                except:
+                    pass
         else:
             biz_con.pop(bc.id, None)
             save_connections(biz_con)
@@ -970,23 +762,45 @@ async def on_biz_conn(bc: types.BusinessConnection):
 
 @dp.deleted_business_messages()
 async def on_deleted(event: types.BusinessMessagesDeleted):
-    """Сохранение удалённых сообщений в БД (без отправки админам)"""
-    if gs('spy_enabled') != '1': return
+    """Сохраняем удалённые сообщения и показываем админам"""
+    if gs('spy_enabled') != '1':
+        return
     try:
         for msg_id in event.message_ids:
             cached = get_cached(event.chat.id, msg_id)
             if cached:
-                print(f"Удалено сообщение от {cached['user_id']} в чате {event.chat.id}")
+                u_name = f"@{cached['username']}" if cached['username'] else (cached['first_name'] or '?')
+                content = cached['text'] or cached['caption'] or ''
+                ts = str(cached['ts'])[:16]
+                text = (
+                    f"🗑 <b>Удалено сообщение!</b>\n\n"
+                    f"👤 <b>Кто:</b> {u_name}\n"
+                    f"🆔 <b>ID:</b> <code>{cached['user_id']}</code>\n"
+                    f"💬 <b>Чат:</b> <code>{event.chat.id}</code>\n"
+                    f"⏰ <b>Время:</b> {ts}\n"
+                )
+                if content:
+                    text += f"\n<b>Текст:</b>\n<blockquote>{content[:800]}</blockquote>"
+                
+                # Отправляем админам
+                for aid in (ADMIN_ID, ADMIN_ID_2):
+                    try:
+                        await bot.send_message(aid, text, parse_mode=ParseMode.HTML)
+                    except Exception as e:
+                        print(f"notify {aid} err: {e}")
             else:
-                print(f"Удалено незакешированное сообщение {msg_id} в чате {event.chat.id}")
+                print(f"Удалено незакешированное сообщение {msg_id}")
     except Exception as e:
         print(f"on_deleted err: {e}")
+        import traceback
+        traceback.print_exc()
 
 @dp.business_message()
 async def on_biz_msg(msg: types.Message):
     try:
         bc_id = msg.business_connection_id
-        if not bc_id: return
+        if not bc_id:
+            return
         
         if bc_id not in biz_con:
             biz_con[bc_id] = ADMIN_ID
@@ -998,7 +812,7 @@ async def on_biz_msg(msg: types.Message):
 
         # НЕ ОТВЕЧАЕМ НА СВОИ СООБЩЕНИЯ
         if msg.from_user and msg.from_user.id == owner_id:
-            print(f"Пропускаем сообщение от владельца: {owner_id}")
+            print(f"Пропускаем сообщение от владельца")
             return
 
         uid = msg.from_user.id if msg.from_user else 0
@@ -1023,34 +837,41 @@ async def on_biz_msg(msg: types.Message):
 
         # ИИ-ответы только если включены
         if gs('ai_enabled') != '1':
-            print("ИИ-ответы выключены")
             return
             
         if not text:
             return
             
         if uid and is_blacklisted(uid):
-            print(f"User {uid} в ЧС, пропускаем")
+            print(f"User {uid} в ЧС")
+            return
+
+        # ВАЖНО: Проверяем что сообщение не от бота
+        if msg.from_user and msg.from_user.is_bot:
             return
 
         print(f"Отвечаем пользователю {uid}: {text[:50]}...")
-        await asyncio.sleep(random.uniform(1, 4))
+        await asyncio.sleep(random.uniform(1, 2))
         await send_biz_reply(msg.chat.id, uid, text, bc_id, msg.message_id)
 
     except Exception as e:
         print(f"on_biz_msg err: {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
 
 # ==================== ЗАПУСК ====================
 def load_connections():
     if os.path.exists(CONN_FILE):
         try:
-            with open(CONN_FILE,'r',encoding='utf-8') as f: return json.load(f)
-        except: return {}
+            with open(CONN_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
     return {}
 
 def save_connections(d):
-    with open(CONN_FILE,'w',encoding='utf-8') as f: json.dump(d,f,ensure_ascii=False,indent=2)
+    with open(CONN_FILE, 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
 
 async def main():
     global biz_con
