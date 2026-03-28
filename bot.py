@@ -729,11 +729,16 @@ async def proc_broadcast(msg: types.Message, state: FSMContext):
 async def cb_auto(cb: types.CallbackQuery, state: FSMContext):
     if not is_admin(cb.from_user.id): return await cb.answer()
     auto=gs('auto_reply')
+    # ИСПРАВЛЕНО: выносим HTML-теги за пределы f-строки
+    text_msg = f'💬 <b>Авто-ответ на первое сообщение</b>\n\n'
+    if auto:
+        text_msg += f'Текущий:\n<blockquote>{auto}</blockquote>\n\n'
+    else:
+        text_msg += f'Не задан.\n\n'
+    text_msg += f'Отправьте текст (или <code>-</code> чтобы выключить):'
     try:
         await cb.message.edit_text(
-            f'💬 <b>Авто-ответ на первое сообщение</b>\n\n'
-            f'{"Текущий:\n<blockquote>"+auto+"</blockquote>" if auto else "Не задан."}\n\n'
-            f'Отправьте текст (или <code>-</code> чтобы выключить):',
+            text_msg,
             reply_markup=back_kb(), parse_mode=ParseMode.HTML)
     except: pass
     await state.set_state(SetAutoReply.waiting)
