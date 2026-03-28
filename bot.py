@@ -7,7 +7,7 @@ import os, json, asyncio, sqlite3, re, random
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -16,7 +16,7 @@ import aiohttp
 
 # ==================== НАСТРОЙКИ ====================
 BOT_TOKEN    = "8738745683:AAGZF174_5exSVt55Ou4pVS54W8J1NpCL04"
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 ADMIN_ID     = 5883796026
 ADMIN_ID_2   = 1989613788
 DB_PATH      = "biz_bot.db"
@@ -29,129 +29,304 @@ bot     = Bot(token=BOT_TOKEN)
 dp      = Dispatcher(storage=MemoryStorage())
 biz_con = {}  # bc_id -> owner_user_id
 
-# ── ВСЕ ПРЕМИУМ ЭМОДЗИ ──
-EMOJI = {
-    # Основные
-    'OK': '5870633910337015697', 'ERR': '5870657884844462243', 'EYE': '6037397706505195857',
-    'BOT': '6030400221232501136', 'DEL': '6039522349517115015', 'STATS': '5870921681735781843',
-    'INFO': '6028435952299413210', 'GEAR': '6032742198179532882', 'MSG': '5778208881301787450',
-    'SEND': '5963103826075456248', 'BL': '5870675217193048938', 'CMD': '6032949275732742941',
-    
-    # Стрелки
-    'ARROW_RIGHT': '6037622221625626773', 'ARROW_LEFT': '6039519841256214245',
-    'ARROW_UP': '6028205772117118673', 'ARROW_DOWN': '6037157012242960559',
-    'ARROW_UP_SEND': '6039573425268201570', 'ARROW_DOWN_IN': '5963087934696459905',
-    
-    # Замки
-    'LOCK_OPEN': '6037496202990194718', 'LOCK_CLOSED': '6037249452824072506',
-    'LOCK_CLOSED_2': '5778570255555105942',
-    
-    # Люди
-    'USER': '6032994772321309200', 'USERS': '6033125983572201397',
-    'SPEAKING': '6032653721853234759', 'WAVE': '6041921818896372382',
-    'THUMB_UP': '6041720006973067267', 'THUMB_DOWN': '6041716699848249286',
-    'CLAP': '5994417835630137549', 'POINT_UP': '5884106131822875141',
-    
-    # Эмодзи реакций
-    'SMILE': '6039587087559168309', 'THINK': '6043960760130868895',
-    'ANGRY': '6044118213631938928', 'SAD': '6042029429301973188',
-    'HEART': '6037533152593842454', 'STAR': '6030425896546996257',
-    
-    # Медиа
-    'PHOTO': '5767117162619605573', 'VIDEO': '6039391078136681499',
-    'DOCUMENT': '6034969813032374911', 'FOLDER': '6037475557082403885',
-    'CLIP': '5776138384942567185', 'PICTURE': '6030466823290360017',
-    
-    # Инструменты
-    'WRENCH': '5962952497197748583', 'HAMMER': '6039729023343400390',
-    'SCISSORS': '5771880672192893347', 'PENCIL': '6039779802741739617',
-    'KEYBOARD': '6039404727542747508', 'MAGNIFY': '6032850693348399258',
-    
-    # Разное
-    'BELL': '6039486778597970865', 'BELL_OFF': '6039569594157371705',
-    'SPEAKER': '6039381989985882045', 'MUTE': '6039505337151655702',
-    'CALENDAR': '5890937706803894250', 'CLOCK': '6037268453759389862',
-    'GIFT': '6037175527846975726', 'BOMB': '5920515922505765329',
-    'CROSS': '6030757850274336631', 'CHECK': '6030839471832829491',
-    'PLUS': '6032924188828767321', 'QUESTION': '6030848053177486888',
-    'EXCLAMATION': '6030563507299160824', 'INFO_SQUARE': '6028435952299413210',
-    
-    # Компьютер/Телефон
-    'TV': '6044356915029348425', 'PHONE': '6039605143601680423',
-    'COMPUTER': '5942734685976138521', 'KEYBOARD_2': '5767262289564536912',
-    
-    # Книги/Документы
-    'BOOK': '6037286673010660132', 'NOTE': '5778299625370817409',
-    'NEWSPAPER': '5895519358871932592', 'CHART': '5938539885907415367',
-    
-    # Погода/Природа
-    'SUN': '5938525265838739643', 'MOON': '5769143090103193926',
-    'CLOUD': '6028115612163641653', 'CYCLONE': '6050588788021793070',
-    'DROP': '6050632433479455053',
-    
-    # Еда
-    'BURGER': '6041874690220233085', 'APPLE': '5775870512127283512',
-    'CAKE': '5922305158636639117', 'COIN': '5778613750688911681',
-    'MONEY': '5904359114531675993', 'DIAMOND': '6037083366438737901',
-    
-    # Игры/Развлечения
-    'GAME': '5938413566624272793', 'FILM': '5944777041709633960',
-    'MICROPHONE': '6030722571412967168', 'MUSIC': '6037364759811068375',
-    'MASK': '6032625495328165724', 'MAGIC': '6021792097454002931',
-    
-    # Транспорт
-    'AIRPLANE': '6028346797368283073', 'HOUSE': '6042137469204303531',
-    'DOOR': '6035130900075777681',
-    
-    # Спорт
-    'SOCCER': '6042069608721027027', 'MEDAL': '6037428784888549034',
-    
-    # Медицина
-    'PILL': '6050677620830376838', 'BRAIN': '5864019342873598613',
-    
-    # Разное 2
-    'WIFI': '6048723247501938454', 'INFINITY': '6048407885233263063',
-    'SPONGE': '5811966564039135541', 'BRUSH': '6050679691004612757',
-    'LABEL': '6039565797406282001', 'PIN': '6042011682497106307',
+# ── ID ПРЕМИУМ ЭМОДЗИ ДЛЯ КНОПОК ──
+EMOJI_ID = {
+    'SETTINGS': '5870982283724328568',
+    'PROFILE': '5870994129244131212',
+    'USERS': '5870772616305839506',
+    'USER_CHECK': '5891207662678317861',
+    'USER_CROSS': '5893192487324880883',
+    'FILE': '5870528606328852614',
+    'SMILE': '5870764288364252592',
+    'GRAPH_UP': '5870930636742595124',
+    'STATS': '5870921681735781843',
+    'HOME': '5873147866364514353',
+    'LOCK': '6037249452824072506',
+    'UNLOCK': '6037496202990194718',
+    'MEGAPHONE': '6039422865189638057',
+    'CHECK': '5870633910337015697',
+    'CROSS': '5870657884844462243',
+    'PENCIL': '5870676941614354370',
+    'TRASH': '5870875489362513438',
+    'DOWN': '5893057118545646106',
+    'CLIP': '6039451237743595514',
+    'LINK': '5769289093221454192',
+    'INFO': '6028435952299413210',
+    'BOT': '6030400221232501136',
+    'EYE': '6037397706505195857',
+    'EYE_HIDDEN': '6037243349675544634',
+    'SEND': '5963103826075456248',
+    'DOWNLOAD': '6039802767931871481',
+    'BELL': '6039486778597970865',
+    'GIFT': '6032644646587338669',
+    'CLOCK': '5983150113483134607',
+    'CONFETTI': '6041731551845159060',
+    'FONT': '5870801517140775623',
+    'WRITE': '5870753782874246579',
+    'MEDIA': '6035128606563241721',
+    'LOCATION': '6042011682497106307',
+    'WALLET': '5769126056262898415',
+    'BOX': '5884479287171485878',
+    'CRYPTO': '5260752406890711732',
+    'CALENDAR': '5890937706803894250',
+    'LABEL': '5886285355279193209',
+    'TIME_PASSED': '5775896410780079073',
+    'APPS': '5778672437122045013',
+    'BRUSH': '6050679691004612757',
+    'ADD_TEXT': '5771851822897566479',
+    'RESOLUTION': '5778479949572738874',
+    'MONEY': '5904462880941545555',
+    'SEND_MONEY': '5890848474563352982',
+    'RECEIVE_MONEY': '5879814368572478751',
+    'CODE': '5940433880585605708',
+    'LOADING': '5345906554510012647',
+    'BACK': '6039519841256214245',
+    'STAR': '6030425896546996257',
+    'HEART': '6037533152593842454',
+    'ROBOT': '6030400221232501136',
+    'CURSOR': '6032949275732742941',
+    'SPEECH': '5778208881301787450',
+    'BLOCK': '5870675217193048938',
 }
 
-def tge(eid, fb=''): return f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>'
+def tge(eid, fb=''): 
+    return f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>'
 
-# Создаем переменные для удобного использования
-EM_OK    = tge(EMOJI['CHECK'], '✅')
-EM_ERR   = tge(EMOJI['CROSS'], '❌')
-EM_EYE   = tge(EMOJI['EYE'], '👁')
-EM_BOT   = tge(EMOJI['BOT'], '🤖')
-EM_DEL   = tge(EMOJI['DEL'], '🗑')
-EM_STATS = tge(EMOJI['STATS'], '📊')
-EM_INFO  = tge(EMOJI['INFO'], 'ℹ️')
-EM_GEAR  = tge(EMOJI['GEAR'], '⚙️')
-EM_MSG   = tge(EMOJI['MSG'], '💬')
-EM_SEND  = tge(EMOJI['ARROW_UP_SEND'], '📤')
-EM_BL    = tge(EMOJI['BL'], '⛔')
-EM_CMD   = tge(EMOJI['CMD'], '🎯')
-EM_USERS = tge(EMOJI['USERS'], '👥')
-EM_USER  = tge(EMOJI['USER'], '👤')
-EM_LOCK  = tge(EMOJI['LOCK_CLOSED'], '🔒')
-EM_UNLOCK = tge(EMOJI['LOCK_OPEN'], '🔓')
-EM_STAR  = tge(EMOJI['STAR'], '⭐️')
-EM_HEART = tge(EMOJI['HEART'], '❤️')
-EM_BELL  = tge(EMOJI['BELL'], '🔔')
-EM_CLOCK = tge(EMOJI['CLOCK'], '⏲️')
-EM_CALENDAR = tge(EMOJI['CALENDAR'], '📅')
-EM_PHOTO = tge(EMOJI['PHOTO'], '📷')
-EM_VIDEO = tge(EMOJI['VIDEO'], '📺')
-EM_FILE  = tge(EMOJI['DOCUMENT'], '📄')
-EM_FOLDER = tge(EMOJI['FOLDER'], '📁')
-EM_PLUS  = tge(EMOJI['PLUS'], '➕')
-EM_QUESTION = tge(EMOJI['QUESTION'], '❓')
-EM_EXCLAMATION = tge(EMOJI['EXCLAMATION'], '❗️')
-EM_ARROW_RIGHT = tge(EMOJI['ARROW_RIGHT'], '➡️')
-EM_ARROW_LEFT = tge(EMOJI['ARROW_LEFT'], '⬅️')
-EM_ARROW_UP = tge(EMOJI['ARROW_UP'], '⬆️')
-EM_ARROW_DOWN = tge(EMOJI['ARROW_DOWN'], '⬇️')
-EM_CHECK = tge(EMOJI['CHECK'], '✅')
-EM_CROSS = tge(EMOJI['CROSS'], '❌')
+# Создаем переменные для текстовых сообщений
+EM_OK    = tge(EMOJI_ID['CHECK'], '✅')
+EM_ERR   = tge(EMOJI_ID['CROSS'], '❌')
+EM_EYE   = tge(EMOJI_ID['EYE'], '👁')
+EM_BOT   = tge(EMOJI_ID['BOT'], '🤖')
+EM_DEL   = tge(EMOJI_ID['TRASH'], '🗑')
+EM_STATS = tge(EMOJI_ID['STATS'], '📊')
+EM_INFO  = tge(EMOJI_ID['INFO'], 'ℹ️')
+EM_GEAR  = tge(EMOJI_ID['SETTINGS'], '⚙️')
+EM_MSG   = tge(EMOJI_ID['SPEECH'], '💬')
+EM_SEND  = tge(EMOJI_ID['SEND'], '📤')
+EM_BL    = tge(EMOJI_ID['BLOCK'], '⛔')
+EM_CMD   = tge(EMOJI_ID['CURSOR'], '🎯')
+EM_USERS = tge(EMOJI_ID['USERS'], '👥')
+EM_USER  = tge(EMOJI_ID['PROFILE'], '👤')
+EM_LOCK  = tge(EMOJI_ID['LOCK'], '🔒')
+EM_UNLOCK = tge(EMOJI_ID['UNLOCK'], '🔓')
+EM_STAR  = tge(EMOJI_ID['STAR'], '⭐️')
+EM_HEART = tge(EMOJI_ID['HEART'], '❤️')
+EM_BELL  = tge(EMOJI_ID['BELL'], '🔔')
+EM_CLOCK = tge(EMOJI_ID['CLOCK'], '⏲️')
+EM_CALENDAR = tge(EMOJI_ID['CALENDAR'], '📅')
+EM_PHOTO = tge(EMOJI_ID['MEDIA'], '📷')
+EM_VIDEO = tge(EMOJI_ID['MEDIA'], '📺')
+EM_FILE  = tge(EMOJI_ID['FILE'], '📄')
+EM_FOLDER = tge(EMOJI_ID['FILE'], '📁')
+EM_PLUS  = tge(EMOJI_ID['CODE'], '➕')
+EM_QUESTION = tge(EMOJI_ID['INFO'], '❓')
+EM_EXCLAMATION = tge(EMOJI_ID['TIME_PASSED'], '❗️')
+EM_ARROW_RIGHT = tge(EMOJI_ID['SEND'], '➡️')
+EM_ARROW_LEFT = tge(EMOJI_ID['BACK'], '⬅️')
+EM_ARROW_UP = tge(EMOJI_ID['SEND'], '⬆️')
+EM_ARROW_DOWN = tge(EMOJI_ID['DOWNLOAD'], '⬇️')
+EM_CHECK = tge(EMOJI_ID['CHECK'], '✅')
+EM_CROSS = tge(EMOJI_ID['CROSS'], '❌')
+EM_PENCIL = tge(EMOJI_ID['PENCIL'], '✏️')
+
+# ==================== КЛАВИАТУРЫ ====================
+
+def main_kb():
+    ai_status = gs('ai_enabled') == '1'
+    spy_status = gs('spy_enabled') == '1'
+    
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if ai_status else '❌'} ИИ-ответы",
+                callback_data='s_ai',
+                icon_custom_emoji_id=EMOJI_ID['CHECK'] if ai_status else EMOJI_ID['CROSS']
+            ),
+            InlineKeyboardButton(
+                text=f"{'👁' if spy_status else '👁‍🗨'} Слежка",
+                callback_data='s_spy',
+                icon_custom_emoji_id=EMOJI_ID['EYE'] if spy_status else EMOJI_ID['EYE_HIDDEN']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Статистика",
+                callback_data='s_stats',
+                icon_custom_emoji_id=EMOJI_ID['STATS']
+            ),
+            InlineKeyboardButton(
+                text="Пользователи",
+                callback_data='s_users',
+                icon_custom_emoji_id=EMOJI_ID['USERS']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Чёрный список",
+                callback_data='s_bl',
+                icon_custom_emoji_id=EMOJI_ID['BLOCK']
+            ),
+            InlineKeyboardButton(
+                text="Рассылка",
+                callback_data='s_broadcast',
+                icon_custom_emoji_id=EMOJI_ID['MEGAPHONE']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Авто-ответ",
+                callback_data='s_auto',
+                icon_custom_emoji_id=EMOJI_ID['SPEECH']
+            ),
+            InlineKeyboardButton(
+                text="Очистка AI",
+                callback_data='s_clearmem',
+                icon_custom_emoji_id=EMOJI_ID['TRASH']
+            )
+        ],
+    ])
+
+def back_kb(cb='back'):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="Назад",
+                callback_data=cb,
+                icon_custom_emoji_id=EMOJI_ID['BACK']
+            )
+        ]
+    ])
+
+def ai_kb():
+    on = gs('ai_enabled') == '1'
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"{'✅' if on else '❌'} {'Включить' if not on else 'Выключить'}",
+                callback_data='t_ai',
+                icon_custom_emoji_id=EMOJI_ID['CHECK'] if not on else EMOJI_ID['CROSS']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Изменить промпт",
+                callback_data='t_prompt',
+                icon_custom_emoji_id=EMOJI_ID['PENCIL']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"Модель: {gs('ai_model').split('-')[0]}",
+                callback_data='t_model',
+                icon_custom_emoji_id=EMOJI_ID['BOT']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"Reply-шанс: {gs('reply_chance')}%",
+                callback_data='t_chance',
+                icon_custom_emoji_id=EMOJI_ID['SPEECH']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"Скорость печати: x{gs('typing_speed')}",
+                callback_data='t_speed',
+                icon_custom_emoji_id=EMOJI_ID['CLOCK']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Назад",
+                callback_data='back',
+                icon_custom_emoji_id=EMOJI_ID['BACK']
+            )
+        ]
+    ])
+
+def spy_kb():
+    spy_on = gs('spy_enabled') == '1'
+    notify_on = gs('notify_deleted') == '1'
+    log_on = gs('log_msgs') == '1'
+    
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"{'👁' if spy_on else '👁‍🗨'} Слежка за удалёнными",
+                callback_data='t_spy',
+                icon_custom_emoji_id=EMOJI_ID['EYE'] if spy_on else EMOJI_ID['EYE_HIDDEN']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'🔔' if notify_on else '🔕'} Уведомлять меня",
+                callback_data='t_notify',
+                icon_custom_emoji_id=EMOJI_ID['BELL'] if notify_on else EMOJI_ID['CLOCK']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'📁' if log_on else '🚫'} Логировать все сообщения",
+                callback_data='t_log',
+                icon_custom_emoji_id=EMOJI_ID['FILE'] if log_on else EMOJI_ID['CROSS']
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Назад",
+                callback_data='back',
+                icon_custom_emoji_id=EMOJI_ID['BACK']
+            )
+        ]
+    ])
+
+def model_kb():
+    models = [
+        ('llama-3.3-70b-versatile', 'Llama 3.3 70B'),
+        ('llama-3.1-8b-instant', 'Llama 3.1 8B'),
+        ('mixtral-8x7b-32768', 'Mixtral 8x7B'),
+        ('gemma2-9b-it', 'Gemma2 9B')
+    ]
+    cur = gs('ai_model')
+    rows = []
+    for v, l in models:
+        rows.append([
+            InlineKeyboardButton(
+                text=f"{'✅ ' if v == cur else ''}{l}",
+                callback_data=f'm_{v}',
+                icon_custom_emoji_id=EMOJI_ID['BOT']
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton(
+            text="Назад",
+            callback_data='s_ai',
+            icon_custom_emoji_id=EMOJI_ID['BACK']
+        )
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def bl_kb():
+    with db() as c:
+        bl = c.execute('SELECT * FROM blacklist').fetchall()
+    rows = []
+    for r in bl:
+        n = f"@{r['username']}" if r['username'] else str(r['user_id'])
+        rows.append([
+            InlineKeyboardButton(
+                text=f"❌ {n}",
+                callback_data=f'bl_rm_{r["user_id"]}',
+                icon_custom_emoji_id=EMOJI_ID['CROSS']
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton(
+            text="Назад",
+            callback_data='back',
+            icon_custom_emoji_id=EMOJI_ID['BACK']
+        )
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 # ==================== FSM ====================
 class SetPrompt(StatesGroup):
@@ -185,19 +360,19 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER, role TEXT, content TEXT, ts TEXT)''')
         for k,v in {
-            'ai_enabled':'0','spy_enabled':'1','notify_deleted':'1',
+            'ai_enabled':'1','spy_enabled':'1','notify_deleted':'1',
             'log_msgs':'1','ai_prompt':'Ты — профессиональный помощник бизнес-аккаунта. Отвечай вежливо и по делу.',
             'ai_model':'llama-3.3-70b-versatile','reply_chance':'30',
             'typing_speed':'1.0','auto_reply':'',
         }.items():
             c.execute('INSERT OR IGNORE INTO settings VALUES(?,?)',(k,v))
 
-def gs(key):  # get setting
+def gs(key):
     with db() as c:
         r = c.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()
         return r['value'] if r else ''
 
-def ss(key, val):  # set setting
+def ss(key, val):
     with db() as c:
         c.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',(key,val))
 
@@ -260,7 +435,6 @@ def save_ai_mem(uid, role, content):
     with db() as c:
         c.execute('INSERT INTO ai_memory(user_id,role,content,ts) VALUES(?,?,?,?)',
                   (uid,role,content,datetime.now().isoformat()))
-        # держим последние 40
         c.execute('''DELETE FROM ai_memory WHERE id NOT IN(
             SELECT id FROM ai_memory WHERE user_id=? ORDER BY ts DESC LIMIT 40
         ) AND user_id=?''',(uid,uid))
@@ -298,7 +472,7 @@ async def ask(uid, text, prompt_override=None, history_override=None):
                 if r.status == 200:
                     d     = await r.json()
                     reply = clean(d['choices'][0]['message']['content'])
-                    if prompt_override is None:  # сохраняем только для обычных диалогов
+                    if prompt_override is None:
                         save_ai_mem(uid,"user",text)
                         save_ai_mem(uid,"assistant",reply)
                     return reply
@@ -353,7 +527,7 @@ async def send_biz_reply(chat_id, user_id, text, bc_id, reply_to=None):
         except Exception as e: print(f"send_biz_reply err: {e}")
         if idx<len(parts)-1: await asyncio.sleep(random.uniform(0.5,2.0))
 
-# ==================== КОМАНДНЫЙ ИИ (meta-AI) ====================
+# ==================== КОМАНДНЫЙ ИИ ====================
 COMMANDER_PROMPT = """Ты — командный ИИ для управления Telegram бизнес-ботом.
 Пользователь пишет тебе команды на естественном языке. Твоя задача — понять что он хочет
 и вернуть JSON с действием.
@@ -430,11 +604,11 @@ async def execute_command(uid: int, text: str, message: types.Message):
         status = await message.answer(f'{EM_SEND} Начинаю рассылку {len(rows)} пользователям...', parse_mode=ParseMode.HTML)
         ok=fail=0
         sent_chats = set()
+        bc_id = next(iter(biz_con), None)
         for r in rows:
             chat_id = r['chat_id']
             if not chat_id or chat_id in sent_chats: continue
             sent_chats.add(chat_id)
-            bc_id = next(iter(biz_con), None)
             if not bc_id: continue
             try:
                 await bot.send_message(chat_id=chat_id, text=btext, business_connection_id=bc_id)
@@ -511,69 +685,6 @@ async def execute_command(uid: int, text: str, message: types.Message):
         if reply:
             await message.answer(reply, parse_mode=ParseMode.HTML)
 
-# ==================== КЛАВИАТУРЫ ====================
-def main_kb():
-    ai  = '🟢' if gs('ai_enabled')=='1' else '🔴'
-    spy = '🟢' if gs('spy_enabled')=='1' else '🔴'
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f'{ai} ИИ-ответы',         callback_data='s_ai'),
-         InlineKeyboardButton(text=f'{spy} Слежка',           callback_data='s_spy')],
-        [InlineKeyboardButton(text=f'{EM_STATS} Статистика',   callback_data='s_stats'),
-         InlineKeyboardButton(text=f'{EM_USERS} Пользователи', callback_data='s_users')],
-        [InlineKeyboardButton(text=f'{EM_BL} Чёрный список',   callback_data='s_bl'),
-         InlineKeyboardButton(text=f'{EM_SEND} Рассылка',      callback_data='s_broadcast')],
-        [InlineKeyboardButton(text=f'{EM_MSG} Авто-ответ',     callback_data='s_auto'),
-         InlineKeyboardButton(text=f'{EM_DEL} Очист. AI память', callback_data='s_clearmem')],
-    ])
-
-def back_kb(cb='back'):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f'{EM_ARROW_LEFT} Назад', callback_data=cb)]
-    ])
-
-def ai_kb():
-    on = gs('ai_enabled')=='1'
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f'{EM_CHECK if on else EM_CROSS} {"Включено" if on else "Выключено"}', callback_data='t_ai')],
-        [InlineKeyboardButton(text=f'{EM_PENCIL} Изменить промпт', callback_data='t_prompt')],
-        [InlineKeyboardButton(text=f'{EM_BOT} Модель: '+gs('ai_model').split('-')[0], callback_data='t_model')],
-        [InlineKeyboardButton(text=f'{EM_MSG} Reply-шанс: {gs("reply_chance")}%', callback_data='t_chance')],
-        [InlineKeyboardButton(text=f'{EM_CLOCK} Скорость печати: x{gs("typing_speed")}', callback_data='t_speed')],
-        [InlineKeyboardButton(text=f'{EM_ARROW_LEFT} Назад', callback_data='back')],
-    ])
-
-def spy_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f'{EM_EYE} {"Вкл" if gs("spy_enabled")=="1" else "Выкл"} Слежка',
-            callback_data='t_spy')],
-        [InlineKeyboardButton(
-            text=f'{EM_BELL} {"Вкл" if gs("notify_deleted")=="1" else "Выкл"} Уведомления',
-            callback_data='t_notify')],
-        [InlineKeyboardButton(
-            text=f'{EM_FILE} {"Вкл" if gs("log_msgs")=="1" else "Выкл"} Логирование',
-            callback_data='t_log')],
-        [InlineKeyboardButton(text=f'{EM_ARROW_LEFT} Назад', callback_data='back')],
-    ])
-
-def model_kb():
-    models=[('llama-3.3-70b-versatile','Llama 3.3 70B'),('llama-3.1-8b-instant','Llama 3.1 8B'),
-            ('mixtral-8x7b-32768','Mixtral 8x7B'),('gemma2-9b-it','Gemma2 9B')]
-    cur = gs('ai_model')
-    rows=[[InlineKeyboardButton(text=('✅ ' if v==cur else '')+l, callback_data=f'm_{v}')] for v,l in models]
-    rows.append([InlineKeyboardButton(text=f'{EM_ARROW_LEFT} Назад', callback_data='s_ai')])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-def bl_kb():
-    with db() as c:
-        bl = c.execute('SELECT * FROM blacklist').fetchall()
-    rows=[]
-    for r in bl:
-        n = f"@{r['username']}" if r['username'] else str(r['user_id'])
-        rows.append([InlineKeyboardButton(text=f'{EM_CROSS} {n}', callback_data=f'bl_rm_{r["user_id"]}')])
-    rows.append([InlineKeyboardButton(text=f'{EM_ARROW_LEFT} Назад', callback_data='back')])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
 # ==================== HANDLERS — ADMIN BOT ====================
 
 @dp.message(Command('start'))
@@ -628,8 +739,17 @@ async def cb_ai(cb: types.CallbackQuery):
 @dp.callback_query(F.data=='t_ai')
 async def cb_t_ai(cb: types.CallbackQuery):
     if not is_admin(cb.from_user.id): return await cb.answer()
-    new = toggle('ai_enabled')
-    await cb.answer(f'ИИ {"включён" if new=="1" else "выключен"}')
+    current = gs('ai_enabled')
+    new = '0' if current == '1' else '1'
+    ss('ai_enabled', new)
+    
+    if new == '1':
+        await cb.answer('✅ ИИ-ответы включены!')
+        await cb.message.answer(f'{EM_OK} <b>ИИ-ответы включены!</b>\nТеперь бот будет отвечать на сообщения собеседников.', parse_mode=ParseMode.HTML)
+    else:
+        await cb.answer('❌ ИИ-ответы выключены!')
+        await cb.message.answer(f'{EM_ERR} <b>ИИ-ответы выключены!</b>\nБот больше не будет отвечать автоматически.', parse_mode=ParseMode.HTML)
+    
     await cb_ai(cb)
 
 @dp.callback_query(F.data=='t_prompt')
@@ -656,7 +776,10 @@ async def proc_prompt(msg: types.Message, state: FSMContext):
 async def cb_t_model(cb: types.CallbackQuery):
     if not is_admin(cb.from_user.id): return await cb.answer()
     try:
-        await cb.message.edit_text(f'{EM_BOT} <b>Выберите модель:</b>', reply_markup=model_kb(), parse_mode=ParseMode.HTML)
+        await cb.message.edit_text(
+            f'{EM_BOT} <b>Выберите модель:</b>',
+            reply_markup=model_kb(),
+            parse_mode=ParseMode.HTML)
     except: pass
     await cb.answer()
 
@@ -729,7 +852,9 @@ async def cb_stats_cb(cb: types.CallbackQuery):
             f'{EM_BL} ЧС: <b>{bl}</b>\n{EM_STAR} Всего: <b>{tm}</b>\n\n'
             f'<b>Топ-5:</b>\n{top or "нет данных"}',
             reply_markup=back_kb(), parse_mode=ParseMode.HTML)
-    except: pass
+    except Exception as e:
+        print(f"Stats error: {e}")
+        await cb.message.answer(f'{EM_STATS} Статистика:\nПользователей: {u}\nСообщений: {m}\nЧС: {bl}\nВсего: {tm}')
     await cb.answer()
 
 @dp.callback_query(F.data=='s_users')
@@ -796,7 +921,6 @@ async def proc_broadcast(msg: types.Message, state: FSMContext):
         if not chat_id or chat_id in sent: continue
         sent.add(chat_id)
         try:
-            # ИСПРАВЛЕНО: проверяем наличие файла перед отправкой
             if msg.photo and msg.photo[-1].file_id:
                 await bot.send_photo(chat_id, msg.photo[-1].file_id, caption=text, business_connection_id=bc_id)
             elif msg.video and msg.video.file_id:
@@ -935,39 +1059,59 @@ async def on_biz_msg(msg: types.Message):
     try:
         bc_id = msg.business_connection_id
         if not bc_id: return
+        
         if bc_id not in biz_con:
             biz_con[bc_id] = ADMIN_ID
             save_connections(biz_con)
         owner_id = biz_con[bc_id]
 
+        # ВАЖНО: Кешируем ВСЕ сообщения для слежки
         cache_msg(msg)
 
+        # 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: НЕ ОТВЕЧАЕМ НА СВОИ СООБЩЕНИЯ
+        # Проверяем, что сообщение НЕ от владельца бизнес-аккаунта
         if msg.from_user and msg.from_user.id == owner_id:
+            print(f"Пропускаем сообщение от владельца: {owner_id}")
             return
 
-        uid  = msg.from_user.id if msg.from_user else 0
+        uid = msg.from_user.id if msg.from_user else 0
         text = msg.text or msg.caption or ''
 
+        # Авто-ответ на первое сообщение (если включен)
         auto = gs('auto_reply')
         if auto and uid:
             with db() as c:
-                cnt=c.execute('SELECT COUNT(*) FROM msg_cache WHERE user_id=? AND chat_id=?',
+                cnt = c.execute('SELECT COUNT(*) FROM msg_cache WHERE user_id=? AND chat_id=?',
                               (uid, msg.chat.id)).fetchone()[0]
+            # Отвечаем только на первое сообщение пользователя
             if cnt == 1:
                 await asyncio.sleep(random.uniform(1, 3))
                 try:
                     await bot.send_message(chat_id=msg.chat.id, text=auto,
                                            business_connection_id=bc_id,
                                            reply_to_message_id=msg.message_id)
+                    print(f"Отправлен авто-ответ пользователю {uid}")
                 except Exception as e:
                     print(f"auto_reply err: {e}")
                 return
 
-        if gs('ai_enabled') != '1': return
-        if not text: return
+        # 🔥 ИИ-ответы — только если включены И ТОЛЬКО НА СООБЩЕНИЯ СОБЕСЕДНИКА
+        if gs('ai_enabled') != '1':
+            print("ИИ-ответы выключены")
+            return
+            
+        if not text:
+            return
+            
         if uid and is_blacklisted(uid):
-            print(f"User {uid} blacklisted, skip"); return
+            print(f"User {uid} в черном списке, пропускаем")
+            return
 
+        # Дополнительная проверка: если отправитель — владелец, не отвечаем (дубль)
+        if msg.from_user and msg.from_user.id == owner_id:
+            return
+
+        print(f"Отвечаем пользователю {uid}: {text[:50]}...")
         await asyncio.sleep(random.uniform(1, 4))
         await send_biz_reply(msg.chat.id, uid, text, bc_id, msg.message_id)
 
