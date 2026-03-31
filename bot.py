@@ -32,10 +32,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger(__name__)
 
 # ==================== НАСТРОЙКИ — ВСТАВЬ СВОИ ДАННЫЕ ====================
-BOT_TOKEN    = "ВАШ_BOT_TOKEN"
+BOT_TOKEN    = "8738745683:AAGZF174_5exSVt55Ou4pVS54W8J1NpCL04"
 ADMIN_IDS    = [5883796026, 1989613788]   # список ID администраторов
-CHANNEL_ID   = -1001234567890             # ID приватного канала (отрицательное число)
-CRYPTO_TOKEN = "ВАШ_CRYPTOBOT_TOKEN"     # токен от @CryptoBot (или "" чтобы отключить)
+CHANNEL_ID   = -1003753835502             # ID приватного канала (отрицательное число)
+CRYPTO_TOKEN = "548752:AAN4YohqjSUELA3pvsyOuaupmmdn56apgM4"     # токен от @CryptoBot (или "" чтобы отключить)
 RUB_TO_USDT  = 90.0                       # курс: 1 USDT ≈ 90 рублей
 STARS_RATE   = 1.5                        # 1 рубль = 1.5 звезды
 # ========================================================================
